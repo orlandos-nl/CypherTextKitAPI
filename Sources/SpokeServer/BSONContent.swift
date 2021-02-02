@@ -14,3 +14,9 @@ extension BSONDecoder: ContentDecoder {
         try self.decode(decodable, from: Document(buffer: body))
     }
 }
+
+extension HTTPMediaType {
+    static var bson: HTTPMediaType {
+        HTTPMediaType(type: "application", subType: "bson")
+    }
+}

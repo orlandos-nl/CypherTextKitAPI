@@ -1,35 +1,52 @@
 import Meow
 import Vapor
 import JWTKit
+import CryptoKit
 
 struct Token: JWTPayload {
-    let sub: SubjectClaim
+    let device: UserDeviceId
     let exp: ExpirationClaim
     
     func verify(using signer: JWTSigner) throws {
         try exp.verifyNotExpired()
     }
-    
-    init(user: User, validFor duration: Double) {
-        self.sub = .init(value: user._id)
-        self.exp = .init(value: Date().addingTimeInterval(duration))
-    }
 }
 
 struct TokenAuthenticationMiddleware: Middleware {
     func respond(to request: Request, chainingTo next: Responder) -> EventLoopFuture<Response> {
-        guard let token = request.headers["X-Api-Token"].first else {
+        guard
+            let username = request.headers["X-Api-User"].first,
+            let token = request.headers["X-Api-Token"].first
+        else {
             return request.eventLoop.makeFailedFuture(SpokeServerError.badLogin)
         }
         
-        do {
-            let token = try Application.signer.verify(token, as: Token.self)
-            request.storage.set(UsernameKey.self, to: token.sub.value)
-        } catch {
-            return request.eventLoop.makeFailedFuture(error)
-        }
+        let user = Reference<User>(unsafeTo: username)
         
-        return next.respond(to: request)
+        return user.resolve(in: request.meow).flatMap { user in
+            do {
+                let signer: JWTSigner
+                
+                if let publicKeySigner = try user.makeSigner() {
+                    signer = publicKeySigner
+                } else {
+                    // User hasn't set up their account yet
+                    signer = Application.signer
+                }
+                
+                let token = try signer.verify(token, as: Token.self)
+                let device = try Reference<UserDevice>(unsafeToEncoded: token.device)
+                
+                return device.resolve(in: request.meow).flatMap { device in
+                    request.storage.set(UserDeviceKey.self, to: device)
+                    request.storage.set(UserKey.self, to: user)
+                    
+                    return next.respond(to: request)
+                }
+            } catch {
+                return request.eventLoop.makeFailedFuture(error)
+            }
+        }
     }
 }
 
@@ -39,16 +56,36 @@ extension Application {
     }()
 }
 
-fileprivate struct UsernameKey: StorageKey {
-    typealias Value = User.Identifier
+fileprivate struct UserDeviceKey: StorageKey {
+    typealias Value = UserDevice
+}
+
+fileprivate struct UserKey: StorageKey {
+    typealias Value = User
 }
 
 extension Request {
-    var username: String? {
-        storage.get(UsernameKey.self)
+    var device: UserDevice? {
+        storage.get(UserDeviceKey.self)
     }
     
-    var user: Reference<User>? {
+    var user: User? {
+        storage.get(UserKey.self)
+    }
+    
+    var username: String? {
+        device.map(\.$_id.user.reference)
+    }
+    
+    var deviceId: ObjectId? {
+        device.map(\.$_id.device)
+    }
+    
+    var userId: Reference<User>? {
         username.map(Reference<User>.init)
+    }
+    
+    var userDeviceId: Reference<UserDevice>? {
+        device.map(Reference.init)
     }
 }

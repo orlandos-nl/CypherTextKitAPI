@@ -12,6 +12,7 @@ let package = Package(
         .package(url: "https://github.com/vapor/vapor.git", from: "4.0.0"),
         .package(url: "https://github.com/vapor/jwt-kit.git", from: "4.0.0"),
         .package(url: "https://github.com/OpenKitten/MongoKitten.git", .revision("master/6.0")),
+        .package(url: "https://github.com/OpenKitten/BSON.git", .revision("master/7.0")),
     ],
     targets: [
         .target(

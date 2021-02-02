@@ -23,9 +23,9 @@
         "package": "BSON",
         "repositoryURL": "https://github.com/OpenKitten/BSON.git",
         "state": {
-          "branch": null,
-          "revision": "a41b4e30e7b7a8afe0261abc7c6ee1d2b363a722",
-          "version": "7.0.26"
+          "branch": "master/7.0",
+          "revision": "b4f5ed38209ffa933fd9f8d7f7df66d974c8ec4e",
+          "version": null
         }
       },
       {
@@ -33,8 +33,8 @@
         "repositoryURL": "https://github.com/vapor/console-kit.git",
         "state": {
           "branch": null,
-          "revision": "7454e839bc5ae0e75c3946d2613e442fd342fe6b",
-          "version": "4.2.4"
+          "revision": "08f36a30e0893e6a52fefbf1c2db4a6bc1288ba2",
+          "version": "4.2.5"
         }
       },
       {
@@ -51,8 +51,17 @@
         "repositoryURL": "https://github.com/OpenKitten/MongoKitten.git",
         "state": {
           "branch": "master/6.0",
-          "revision": "8d5e7f5f05e1b426cff5abc992acddf80b4ac2c1",
+          "revision": "206dfd176c12718fc479b8e1183f4357fae3405e",
           "version": null
+        }
+      },
+      {
+        "package": "multipart-kit",
+        "repositoryURL": "https://github.com/vapor/multipart-kit.git",
+        "state": {
+          "branch": null,
+          "revision": "73706f1883f2ba950d41f18aec7e3a53766d4a6d",
+          "version": "4.0.0"
         }
       },
       {
@@ -159,8 +168,8 @@
         "repositoryURL": "https://github.com/vapor/vapor.git",
         "state": {
           "branch": null,
-          "revision": "53d15b27ad59b4c91f6ea5fa401b891bd998e202",
-          "version": "4.37.1"
+          "revision": "bb87dcff4cf6d86d386308b4cb1393cefa4891a4",
+          "version": "4.39.2"
         }
       },
       {
