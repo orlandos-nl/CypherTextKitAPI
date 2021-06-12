@@ -3,7 +3,7 @@ import Vapor
 
 public struct UserDeviceId: Hashable, Codable {
     let user: Reference<User>
-    let device: ObjectId
+    let device: String
     
     public func makePrimitive() -> Primitive? {
         try? BSONEncoder().encode(self)
@@ -44,15 +44,69 @@ public struct SignedPublicKey: Codable {
     }
 }
 
-struct UserDeviceConfig: Codable {
-    let publicKey: SignedPublicKey
+struct Signed<T: Codable>: Codable {
+    let value: Document
+    let signature: Data
+    
+    public func verifySignature(signedBy publicIdentity: PublicSigningKey) throws {
+        try publicIdentity.validateSignature(
+            signature,
+            forData: value.makeData()
+        )
+    }
+    
+    public func readAndVerifySignature(signedBy publicIdentity: PublicSigningKey) throws -> T {
+        try publicIdentity.validateSignature(
+            signature,
+            forData: value.makeData()
+        )
+        
+        return try BSONDecoder().decode(T.self, from: value)
+    }
 }
 
-public struct UserDevice: Model, Content {
-    public static let defaultContentType = HTTPMediaType.bson
+public struct UserConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case identity = "a"
+        case devices = "b"
+    }
     
-    @CompoundId<UserDeviceId> public var _id: Document
-    var config: UserDeviceConfig?
+    /// Identity is a public key used to validate messages sidned by `identity`
+    /// This is the main device's identity, which when trusted verified all other devices' validity
+    public let identity: PublicSigningKey
+    
+    /// Devices are signed by `identity`, so you only need to trust `identity`'s validity
+    private var devices: Signed<[UserDeviceConfig]>
+    
+    public func readAndValidateDevices() throws -> [UserDeviceConfig] {
+        try devices.readAndVerifySignature(signedBy: identity)
+    }
+}
+
+public struct UserDeviceConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case deviceId = "a"
+        case identity = "b"
+        case publicKey = "c"
+        case isMasterDevice = "d"
+    }
+    
+    public let deviceId: String
+    public let identity: PublicSigningKey
+    public let publicKey: PublicKey
+    public let isMasterDevice: Bool
+    
+    public init(
+        deviceId: String,
+        identity: PublicSigningKey,
+        publicKey: PublicKey,
+        isMasterDevice: Bool
+    ) {
+        self.deviceId = deviceId
+        self.identity = identity
+        self.publicKey = publicKey
+        self.isMasterDevice = isMasterDevice
+    }
 }
 
 @propertyWrapper

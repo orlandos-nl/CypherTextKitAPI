@@ -8,20 +8,27 @@ let package = Package(
     platforms: [
         .macOS(.v11)
     ],
+    products: [
+        .executable(name: "SpokeServer", targets: ["SpokeServer"])
+    ],
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.0.0"),
-        .package(url: "https://github.com/vapor/jwt-kit.git", from: "4.0.0"),
-        .package(url: "https://github.com/OpenKitten/MongoKitten.git", .revision("master/6.0")),
-        .package(url: "https://github.com/OpenKitten/BSON.git", .revision("master/7.0")),
+        .package(url: "https://github.com/vapor/jwt.git", from: "4.0.0"),
+        .package(url: "https://github.com/OpenKitten/MongoKitten.git", .branch("master/6.0"))
     ],
     targets: [
         .target(
             name: "SpokeServer",
             dependencies: [
                 .product(name: "Vapor", package: "vapor"),
-                .product(name: "JWTKit", package: "jwt-kit"),
+                .product(name: "JWT", package: "jwt"),
                 .product(name: "MongoKitten", package: "MongoKitten"),
-                .product(name: "Meow", package: "MongoKitten"),
+                .product(name: "Meow", package: "MongoKitten")
+            ],
+            swiftSettings: [
+                .unsafeFlags([
+                    "-Xfrontend", "-disable-availability-checking",
+                ])
             ]
         ),
         .testTarget(

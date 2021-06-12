@@ -57,41 +57,15 @@ public struct PublicSigningKey: Codable, JWTAlgorithm {
 
 public struct User: Model {
     public let _id: String
-    private var passwordHash: String
-    public var identity: PublicSigningKey?
-    public var contactAdvertisedData: Data?
+    public var appleIdentifier: String?
+    public var config: UserConfig
     public var blockedUsers: Set<Reference<User>>
     
-    func makeSigner() throws -> JWTSigner? {
-        identity.map(JWTSigner.init)
-    }
-    
-    init(username: String, password: String, identity: PublicSigningKey?) throws {
-        self.init(
-            username: username,
-            passwordHash: try Bcrypt.hash(password),
-            identity: identity
-        )
-    }
-    
-    init(username: String, passwordHash: String, identity: PublicSigningKey?) {
+    init(username: String, appleIdentifier: String?, config: UserConfig) {
         self._id = username
-        self.passwordHash = passwordHash
+        self.appleIdentifier = appleIdentifier
+        self.config = config
         self.blockedUsers = []
-        self.identity = identity
-    }
-    
-    public func authenticate(_ password: String) throws {
-        guard
-            identity == nil,
-            try Bcrypt.verify(password, created: passwordHash)
-        else {
-            throw SpokeServerError.badLogin
-        }
-    }
-    
-    public mutating func changeIdentity(to identity: PublicSigningKey) throws {
-        self.identity = identity
     }
 }
 
@@ -100,28 +74,25 @@ public struct UserProfile: ReadableModel, Content {
     public static var collectionName: String { User.collectionName }
     
     public let _id: String
-    public let identity: PublicSigningKey?
-    public let contactAdvertisedData: Data?
+    public let config: UserConfig
     public let blockedUsers: Set<Reference<User>>
     
     public func encode(to encoder: Encoder) throws {
         enum EncodingKeys: String, CodingKey {
             case _id = "username"
-            case identity, contactAdvertisedData, blockedUsers
+            case config, blockedUsers
         }
         
         var container = encoder.container(keyedBy: EncodingKeys.self)
         
         try container.encode(_id, forKey: ._id)
-        try container.encode(identity, forKey: .identity)
-        try container.encode(contactAdvertisedData, forKey: .contactAdvertisedData)
+        try container.encode(config, forKey: .config)
         try container.encode(blockedUsers, forKey: .blockedUsers)
     }
     
     init(representing user: User) {
         self._id = user._id
-        self.identity = user.identity
-        self.contactAdvertisedData = user.contactAdvertisedData
+        self.config = user.config
         self.blockedUsers = user.blockedUsers
     }
 }

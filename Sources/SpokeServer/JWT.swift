@@ -16,33 +16,42 @@ struct TokenAuthenticationMiddleware: Middleware {
     func respond(to request: Request, chainingTo next: Responder) -> EventLoopFuture<Response> {
         guard
             let username = request.headers["X-Api-User"].first,
+            let deviceId = request.headers["X-Api-Device"].first,
             let token = request.headers["X-Api-Token"].first
         else {
             return request.eventLoop.makeFailedFuture(SpokeServerError.badLogin)
         }
         
         let user = Reference<User>(unsafeTo: username)
-        
         return user.resolve(in: request.meow).flatMap { user in
             do {
-                let signer: JWTSigner
+                let devices = try user.config.readAndValidateDevices()
                 
-                if let publicKeySigner = try user.makeSigner() {
-                    signer = publicKeySigner
-                } else {
-                    // User hasn't set up their account yet
-                    signer = Application.signer
+                guard let currentDevice = devices.first(where: {
+                    $0.deviceId == deviceId
+                }) else {
+                    if let appleToken = request.headers["X-Apple-Token"].first {
+                        // Unknown device, but 'verified' through apple
+                        // Can be used for intra-device communications only
+                        return request.jwt.apple.verify(appleToken).flatMap { appleToken in
+                            request.storage.set(UserDeviceIdKey.self, to: UserDeviceId(user: user*, device: deviceId))
+                            request.storage.set(UserKey.self, to: user)
+                            request.storage.set(IsAppleAuthenticatedKey.self, to: true)
+                            return next.respond(to: request)
+                        }
+                    } else {
+                        // Device is not a known device, user is not signed in
+                        throw SpokeServerError.badLogin
+                    }
                 }
                 
+                let signer = JWTSigner(algorithm: currentDevice.identity)
                 let token = try signer.verify(token, as: Token.self)
-                let device = try Reference<UserDevice>(unsafeToEncoded: token.device)
+                request.storage.set(UserDeviceIdKey.self, to: token.device)
+                request.storage.set(UserKey.self, to: user)
+                request.storage.set(IsMasterDeviceKey.self, to: currentDevice.isMasterDevice)
                 
-                return device.resolve(in: request.meow).flatMap { device in
-                    request.storage.set(UserDeviceKey.self, to: device)
-                    request.storage.set(UserKey.self, to: user)
-                    
-                    return next.respond(to: request)
-                }
+                return next.respond(to: request)
             } catch {
                 return request.eventLoop.makeFailedFuture(error)
             }
@@ -56,17 +65,33 @@ extension Application {
     }()
 }
 
-fileprivate struct UserDeviceKey: StorageKey {
-    typealias Value = UserDevice
+fileprivate struct UserDeviceIdKey: StorageKey {
+    typealias Value = UserDeviceId
 }
 
 fileprivate struct UserKey: StorageKey {
     typealias Value = User
 }
 
+fileprivate struct IsMasterDeviceKey: StorageKey {
+    typealias Value = Bool
+}
+
+fileprivate struct IsAppleAuthenticatedKey: StorageKey {
+    typealias Value = Bool
+}
+
 extension Request {
-    var device: UserDevice? {
-        storage.get(UserDeviceKey.self)
+    var device: UserDeviceId? {
+        storage.get(UserDeviceIdKey.self)
+    }
+    
+    var isMasterDevice: Bool {
+        storage.get(IsMasterDeviceKey.self) ?? false
+    }
+    
+    var isAppleAuthenticated: Bool {
+        storage.get(IsAppleAuthenticatedKey.self) ?? false
     }
     
     var user: User? {
@@ -74,18 +99,14 @@ extension Request {
     }
     
     var username: String? {
-        device.map(\.$_id.user.reference)
+        device.map(\.user.reference)
     }
     
-    var deviceId: ObjectId? {
-        device.map(\.$_id.device)
+    var deviceId: String? {
+        device.map(\.device)
     }
     
     var userId: Reference<User>? {
         username.map(Reference<User>.init)
-    }
-    
-    var userDeviceId: Reference<UserDevice>? {
-        device.map(Reference.init)
     }
 }

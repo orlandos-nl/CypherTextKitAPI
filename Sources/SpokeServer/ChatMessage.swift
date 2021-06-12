@@ -1,28 +1,31 @@
 import Vapor
 import Meow
 
+enum ReceivedNotificationState: Int, Codable {
+    case inTransit = 0
+    case received = 1
+    case receiveEmitted = 2
+}
+
 struct ChatMessage: Model, Content {
-    let _id: String
-    let creationDate: Date
-    let sender: Reference<UserDevice>
-    let recipient: Reference<User>
-    let devices: Set<ObjectId>
-    var devicesReceived: Set<ObjectId>
-    let message: Document
+    let _id: ObjectId
+    let messageId: String
+    let createdAt: Date
+    let sender: UserDeviceId
+    let recipient: UserDeviceId
+    let message: MultiRecipientSpokeMessage
     
     init(
-        _id: String?,
-        message: Document,
-        from sender: Reference<UserDevice>,
-        to recipient: Reference<User>,
-        devices: Set<ObjectId>
+        messageId: String,
+        message: MultiRecipientSpokeMessage,
+        from sender: UserDeviceId,
+        to recipient: UserDeviceId
     ) {
-        self._id = _id ?? UUID().uuidString
-        self.creationDate = Date()
+        self._id = ObjectId()
+        self.createdAt = Date()
+        self.messageId = messageId
         self.message = message
         self.sender = sender
         self.recipient = recipient
-        self.devices = devices
-        self.devicesReceived = []
     }
 }

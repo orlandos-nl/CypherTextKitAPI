@@ -1,11 +1,10 @@
+import MongoKitten
+import JWT
 import BSON
 import Vapor
 import Meow
 import JWTKit
 
-// TODO: Ideally we'd have SCRAM-SHA-256 authentication in the client & server
-// SCRAM-SHA-256 doesn't require the password to leave the client's device
-// It's also more secure, since the server is being verified as well
 // TODO: Use $set queries to prevent simultanious updates to the same model, overwriting one another
 struct Credentials: Content {
     static let defaultContentType = HTTPMediaType.bson
@@ -19,20 +18,37 @@ struct FirstLoginRequest: Content {
     static let defaultContentType = HTTPMediaType.bson
     
     let user: Reference<User>
-    let deviceId: ObjectId
+    let deviceId: String
     let password: String
 }
 
-struct FirstLoginResponse: Content {
+struct PlainSignUpRequest: Content {
     static let defaultContentType = HTTPMediaType.bson
     
-    let token: String
+    let username: String
+    let config: UserConfig
+}
+
+struct SIWARequest: Content {
+    static let defaultContentType = HTTPMediaType.bson
+    
+    let username: String
+    let appleToken: String
+    let config: UserConfig
 }
 
 struct SetupAccount: Content {
     static let defaultContentType = HTTPMediaType.bson
     
     let identity: PublicSigningKey
+    let initiaiDeviceId: String
+    let initialDevice: UserDeviceConfig
+}
+
+struct UpdateProfilePictureData: Content {
+    static let defaultContentType = HTTPMediaType.bson
+    
+    let profilePicture: Data
 }
 
 struct AuthResponse: Content {
@@ -45,70 +61,109 @@ struct AuthResponse: Content {
 struct UpdateDeviceConfigRequest: Content {
     static let defaultContentType = HTTPMediaType.bson
     
-    let config: UserDeviceConfig
+    let signedConfig: Signed<UserDeviceConfig>
 }
 
 struct UserKeysResponse: Content {
+    enum CodingKeys: String, CodingKey {
+        case user = "a"
+        case devices = "b"
+    }
+    
     static let defaultContentType = HTTPMediaType.bson
     
     let user: UserProfile
-    let devices: [UserDevice]
+    let devices: [UserDeviceId]
+}
+
+public struct SendMessage: Content {
+    let message: MultiRecipientSpokeMessage
+    let messageId: String
+}
+
+struct CreateReadReceiptRequest: Content {
+    let messageIds: [String]
+    let state: ReadReceipt.State
+    let messageSender: UserDeviceId
+}
+
+enum MessageType: String {
+    case message = "a"
+    case readReceipt = "b"
+}
+
+struct SendMessageRequest: Codable {
+    let messageId: String
+    let pushType: String
+    let recipient: String
+    let devices: [String]?
+    let message: Document
+}
+
+struct UserInfoRequest: Content {
+    static let defaultContentType = HTTPMediaType.bson
+    
+    let username: Reference<UserProfile>
+}
+
+struct SignUpResponse: Content {
+    let existingUser: String?
 }
 
 func registerRoutes(to routes: RoutesBuilder) {
-    #if Xcode
-    routes.get("reset") { req in
-        return app.meow.raw.drop().flatMapThrowing { () -> Response in 
-            for i in 0..<10 {
-                let user = try User(username: "test\(i)", password: "test\(i)", identity: nil)
-                _ = user.save(in: app.meow)
+    routes.post("auth", "apple", "sign-up") { req -> EventLoopFuture<SignUpResponse> in
+        let body = try req.content.decode(SIWARequest.self)
+        
+        // TODO: Proof signed by config.identity
+        
+        return req.jwt.apple.verify(
+            body.appleToken,
+            applicationIdentifier: "nl.orlandos.Workspaces"
+        ).flatMap { appleIdentityToken in
+            req.meow(User.self).findOne(
+                where: "appleIdentifier" == appleIdentityToken.subject.value
+            ).flatMap { user in
+                if let user = user {
+                    return req.eventLoop.future(SignUpResponse(existingUser: user._id))
+                } else {
+                    let user = User(
+                        username: body.username,
+                        appleIdentifier: appleIdentityToken.subject.value,
+                        config: body.config
+                    )
+                    
+                    return user.save(in: req.meow).transform(to: SignUpResponse(existingUser: nil))
+                }
             }
-            
-            return Response(status: .ok)
         }
     }
-    #endif
     
-    routes.post("auth", "first-login") { req -> EventLoopFuture<FirstLoginResponse> in
-        let login = try req.content.decode(FirstLoginRequest.self, using: BSONDecoder())
+    routes.post("auth", "plain", "sign-up") { req -> EventLoopFuture<SignUpResponse> in
+        let body = try req.content.decode(PlainSignUpRequest.self)
         
-        return login.user.resolve(in: req.meow).flatMap { user in
-            do {
-                try user.authenticate(login.password)
-                
-                let device = try UserDevice(_id: .init(UserDeviceId(user: login.user, device: login.deviceId)))
-                
-                let token = Token(
-                    device: device.$_id,
-                    exp: ExpirationClaim(value: .init(timeIntervalSinceNow: 3600))
-                )
-                
-                let signedToken = try Application.signer.sign(token)
-                
-                return device.save(in: req.meow).transform(to: FirstLoginResponse(token: signedToken))
-            } catch {
-                return req.eventLoop.makeFailedFuture(error)
-            }
-        }
+        let user = User(
+            username: body.username,
+            appleIdentifier: nil,
+            config: body.config
+        )
+        
+        return user.save(in: req.meow).transform(to: SignUpResponse(existingUser: nil))
     }
     
     // TODO: Use $set instead of `save`
     let protectedRoutes = routes.grouped(TokenAuthenticationMiddleware())
     
-    protectedRoutes.post("auth", "setup") { req -> EventLoopFuture<UserProfile> in
-        guard let currentUser = req.userId else {
-            throw Abort(.unauthorized)
+    protectedRoutes.post("current-user", "config") { req -> EventLoopFuture<UserProfile> in
+        let config = try req.content.decode(UserConfig.self)
+        
+        guard var user = req.user, req.isMasterDevice else {
+            throw Abort(.badRequest)
         }
         
-        let setup = try req.content.decode(SetupAccount.self, using: BSONDecoder())
+        user.config = config
         
-        return currentUser.resolve(in: req.meow).flatMapThrowing { user -> User in
-            var user = user
-            try user.changeIdentity(to: setup.identity)
-            return user
-        }.flatMap { user in
-            user.save(in: req.meow).transform(to: UserProfile(representing: user))
-        }
+        return user.save(in: req.meow)
+            .transform(to: UserProfile(representing: user))
     }
     
     protectedRoutes.get("users", ":userId") { req -> EventLoopFuture<UserProfile> in
@@ -120,148 +175,94 @@ func registerRoutes(to routes: RoutesBuilder) {
     }
     
     // TODO: Use update op with $push
-    protectedRoutes.post("users", ":userId", "block") { req -> EventLoopFuture<UserProfile> in
-        guard let currentUser = req.userId, let otherUser = req.parameters.get("userId", as: Reference<User>.self) else {
+//    protectedRoutes.post("users", ":userId", "block") { req -> EventLoopFuture<UserProfile> in
+//        guard let currentUser = req.userId, let otherUser = req.parameters.get("userId", as: Reference<User>.self) else {
+//            throw Abort(.unauthorized)
+//        }
+//
+//        return currentUser.resolve(in: req.meow).flatMap { currentUser in
+//            var currentUser = currentUser
+//            currentUser.blockedUsers.insert(otherUser)
+//
+//            return currentUser.save(in: req.meow)
+//                .transform(to: UserProfile(representing: currentUser))
+//        }
+//    }
+//
+//    // TODO: Use update op with $pull
+//    protectedRoutes.post("users", ":userId", "unblock") { req -> EventLoopFuture<UserProfile> in
+//        guard let currentUser = req.userId, let otherUser = req.parameters.get("userId", as: Reference<User>.self) else {
+//            throw Abort(.unauthorized)
+//        }
+//
+//        return currentUser.resolve(in: req.meow).flatMap { currentUser in
+//            var currentUser = currentUser
+//            currentUser.blockedUsers.remove(otherUser)
+//
+//            return currentUser.save(in: req.meow)
+//                .transform(to: UserProfile(representing: currentUser))
+//        }
+//    }
+    
+    protectedRoutes.post("actions", "send-message") { req throws -> EventLoopFuture<Response> in
+        // TODO: Prevent receiving the same mesasgeID twice, so that a device can safely assume it being sent in the job queue
+        guard let currentUserDevice = req.device else {
             throw Abort(.unauthorized)
         }
         
-        return currentUser.resolve(in: req.meow).flatMap { currentUser in
-            var currentUser = currentUser
-            currentUser.blockedUsers.insert(otherUser)
+        let body = try req.content.decode(SendMessage.self)
+        let message = body.message
+        
+        let saved = try message.keys.map { keypair -> EventLoopFuture<Void> in
+            let message = MultiRecipientSpokeMessage(
+                tag: .multiRecipientMessage,
+                container: message.container,
+                keys: [keypair]
+            )
             
-            return currentUser.save(in: req.meow)
-                .transform(to: UserProfile(representing: currentUser))
-        }
-    }
-    
-    // TODO: Use update op with $pull
-    protectedRoutes.post("users", ":userId", "unblock") { req -> EventLoopFuture<UserProfile> in
-        guard let currentUser = req.userId, let otherUser = req.parameters.get("userId", as: Reference<User>.self) else {
-            throw Abort(.unauthorized)
-        }
-        
-        return currentUser.resolve(in: req.meow).flatMap { currentUser in
-            var currentUser = currentUser
-            currentUser.blockedUsers.remove(otherUser)
+            let recipient = Reference<User>(unsafeTo: keypair.user)
             
-            return currentUser.save(in: req.meow)
-                .transform(to: UserProfile(representing: currentUser))
-        }
-    }
-    
-    protectedRoutes.get("users", ":userId", "keys") { req -> EventLoopFuture<UserKeysResponse> in
-        guard let user = req.parameters.get("userId", as: Reference<UserProfile>.self) else {
-            throw Abort(.notFound)
-        }
-        
-        return user.resolve(in: req.meow).flatMap { user in
-            return req.meow(UserDevice.self).find(where: "_id.user" == user._id && "config" != nil)
-                .allResults(failable: true)
-                .map { devices in
-                    UserKeysResponse(user: user, devices: devices)
-                }
-        }
-    }
-    
-    protectedRoutes.post("current-user", "devices", ":deviceId") { req -> EventLoopFuture<UserDevice> in
-        guard
-            var currentUserDevice = req.device,
-            let userIdentity = req.user?.identity
-        else {
-            throw Abort(.unauthorized)
-        }
-        
-        let update = try req.content.decode(UpdateDeviceConfigRequest.self, using: BSONDecoder())
-        currentUserDevice.config = update.config
-        
-        try update.config.publicKey.verifySignature(signedBy: userIdentity)
-        
-        return currentUserDevice.save(in: req.meow)
-            .transform(to: currentUserDevice)
-    }
-    
-    protectedRoutes.post("users", ":userId", "send-message") { req -> EventLoopFuture<ChatMessage> in
-        guard
-            let currentUserDevice = req.device,
-            let otherUser = req.parameters.get("userId", as: Reference<User>.self)
-        else {
-            throw Abort(.unauthorized)
-        }
-        
-        let messageId = req.headers["X-Message-Id"].first
-        // TODO: Push type
-        
-        return otherUser.resolve(in: req.meow).flatMap { otherUser in
-            if otherUser.blockedUsers.contains(currentUserDevice.$_id.user) {
-                return req.eventLoop.makeFailedFuture(Abort(.forbidden))
+            if req.isAppleAuthenticated && recipient != currentUserDevice.user {
+                throw Abort(.badRequest)
             }
             
-            return req.body.collect()
-                .unwrap(or: Abort(.badRequest))
-                .flatMap { buffer in
-                    return req.meow(UserDevice.self)
-                        .find(where: "_id.user" == otherUser._id)
-                        .allResults(failable: true)
-                        .flatMap { devices in
-                            let devices = devices.map(\.$_id.device)
-                            let message = ChatMessage(
-                                _id: messageId,
-                                message: Document(buffer: buffer),
-                                from: currentUserDevice*,
-                                to: otherUser*,
-                                devices: Set(devices)
-                            )
-                            
-                            return message.save(in: req.meow).transform(to: message)
+            let recpientDevice = UserDeviceId(
+                user: recipient,
+                device: keypair.deviceId
+            )
+            
+            let chatMessage = ChatMessage(
+                messageId: body.messageId,
+                message: message,
+                from: currentUserDevice,
+                to: recpientDevice
+            )
+            let body = try BSONEncoder().encode(chatMessage)
+            
+            return req.application.webSocketManager.websocket(forDevice: recpientDevice).flatMap { webSocket -> EventLoopFuture<Void> in
+                if let webSocket = webSocket {
+                    let body: Document = [
+                        "type": MessageType.message.rawValue,
+                        "body": body
+                    ]
+                    
+                    let promise = req.eventLoop.makePromise(of: Void.self)
+                    webSocket.send(raw: body.makeData(), opcode: .binary, promise: promise)
+                    return promise.futureResult
+                    // TODO: Client ack
+                } else {
+                    return recipient.exists(in: req.meow).flatMap { exists in
+                        if exists {
+                            return chatMessage.save(in: req.meow).transform(to: ())
+                        } else {
+                            return req.eventLoop.makeSucceededVoidFuture()
+                        }
                     }
                 }
-        }
-    }
-    
-    protectedRoutes.post("users", ":userId", "devices", ":deviceId", "send-message") { req -> EventLoopFuture<ChatMessage> in
-        guard
-            let currentUserDevice = req.device,
-            let otherUser = req.parameters.get("userId", as: Reference<User>.self),
-            let otherUserDeviceId = req.parameters.get("deviceId", as: ObjectId.self)
-        else {
-            throw Abort(.unauthorized)
-        }
-        
-        let messageId = req.headers["X-Message-Id"].first
-        // TODO: Push type
-        
-        let otherUserDevice = try Reference<UserDevice>(
-            unsafeToEncoded: UserDeviceId(
-                user: otherUser,
-                device: otherUserDeviceId
-            )
-        )
-        
-        return otherUser.resolve(in: req.meow).flatMap { otherUser in
-            if otherUser.blockedUsers.contains(currentUserDevice.$_id.user) {
-                return req.eventLoop.makeFailedFuture(Abort(.forbidden))
             }
-            
-            return otherUserDevice.exists(in: req.meow).flatMapThrowing { exists in
-                if !exists {
-                    throw Abort(.notFound)
-                }
-            }
-        }.flatMap {
-            return req.body.collect()
-                .unwrap(or: Abort(.badRequest))
-                .flatMap { buffer in
-                    let message = ChatMessage(
-                        _id: messageId,
-                        message: Document(buffer: buffer),
-                        from: currentUserDevice*,
-                        to: otherUser,
-                        devices: [otherUserDeviceId]
-                    )
-                    
-                    return message.save(in: req.meow).transform(to: message)
-                }
         }
+        
+        return EventLoopFuture.andAllSucceed(saved, on: req.eventLoop).transform(to: Response(status: .ok))
     }
     
     protectedRoutes.webSocket("websocket") { req, websocket in
@@ -278,68 +279,63 @@ func registerRoutes(to routes: RoutesBuilder) {
                 let bson = try BSONEncoder().encode(message)
                 let promise = req.eventLoop.makePromise(of: Void.self)
                 
-                guard message.devices.contains(where: { $0 == device.$_id.device }) else {
+                guard message.recipient == device else {
                     // Skip this one, not intended for this device
                     promise.succeed(())
                     return promise.futureResult
                 }
                 
-                // Emit to all devices, this is just one
-                // TODO: $push
-                var message = message
-                message.devicesReceived.insert(device.$_id.device)
-                
                 websocket.send(raw: bson.makeData(), opcode: .binary, promise: promise)
                 
-                return message.save(in: req.meow).flatMap { _ in
-                    promise.futureResult
-                }.flatMap {
                     // TODO: Multi-Device Support?
                     // TODO: What is a message never arrives at the client? Do we use acknowledgements (which become a receive-receipt)?
-                    chatMessages.deleteOne(where: "_id" == message._id).transform(to: ())
-                }
+                return chatMessages.deleteOne(where: "_id" == message._id).transform(to: ())
             }
         
-        emittingOldMessages.flatMap {
-            chatMessages.buildChangeStream {
-                match("fullDocument.recipient" == user.reference)
-            }
-        }.map { changeStream in
-            changeStream.forEach { notification in
-                guard notification.operationType == .insert, let message = notification.fullDocument else {
-                    return true
-                }
-                
-                guard message.devices.contains(where: { $0 == device.$_id.device }) else {
-                    // Skip this one, not intended for this device
-                    return true
-                }
-                
-                do {
-                    var message = message
-                    message.devicesReceived.insert(device.$_id.device)
-                    let promise = req.eventLoop.makePromise(of: Void.self)
-                    let bson = try BSONEncoder().encode(message)
-                    
-                    websocket.send(raw: bson.makeData(), opcode: .binary, promise: promise)
-                    
-                    _ = message.save(in: req.meow).flatMap { _ in
-                        promise.futureResult
-                    }.flatMap {
-                        // TODO: Multi-Device Support?
-                        // TODO: What is a message never arrives at the client? Do we use acknowledgements (which become a receive-receipt)?
-                        chatMessages.deleteOne(where: "_id" == message._id).transform(to: ())
-                    }
-                    
-                    return true
-                } catch {
-                    _ = websocket.close(code: .unexpectedServerError)
-                    return false
-                }
-            }
-        }.whenFailure { error in
-            _ = websocket.close(code: .unexpectedServerError)
+        emittingOldMessages.whenSuccess {
+            req.application.webSocketManager.addSocket(websocket, forDevice: device)
         }
+        
+//        emittingOldMessages.flatMap {
+//            chatMessages.buildChangeStream {
+//                match("fullDocument.recipient" == user.reference)
+//            }
+//        }.map { changeStream in
+//            var changeStream = changeStream
+//            changeStream.setGetMoreInterval(to: .seconds(5))
+//            changeStream.forEach { notification in
+//                guard notification.operationType == .insert, let message = notification.fullDocument else {
+//                    return true
+//                }
+//
+//                guard message.recipient == device else {
+//                    // Skip this one, not intended for this device
+//                    return true
+//                }
+//
+//                do {
+//                    let promise = req.eventLoop.makePromise(of: Void.self)
+//                    let bson = try BSONEncoder().encode(message)
+//
+//                    websocket.send(raw: bson.makeData(), opcode: .binary, promise: promise)
+//
+//                    _ = message.save(in: req.meow).flatMap { _ in
+//                        promise.futureResult
+//                    }.flatMap {
+//                        // TODO: Multi-Device Support?
+//                        // TODO: What is a message never arrives at the client? Do we use acknowledgements (which become a receive-receipt)?
+//                        chatMessages.deleteOne(where: "_id" == message._id).transform(to: ())
+//                    }
+//
+//                    return true
+//                } catch {
+//                    _ = websocket.close(code: .unexpectedServerError)
+//                    return false
+//                }
+//            }
+//        }.whenFailure { error in
+//            _ = websocket.close(code: .unexpectedServerError)
+//        }
         
 //        websocket.onBinary { websocket, buffer in
 //            let message = Document(buffer: buffer, isArray: false)
