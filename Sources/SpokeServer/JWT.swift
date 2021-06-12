@@ -1,7 +1,7 @@
 import Meow
 import Vapor
 import JWTKit
-import CryptoKit
+import Crypto
 
 struct Token: JWTPayload {
     let device: UserDeviceId
