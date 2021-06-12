@@ -76,8 +76,8 @@ struct UserKeysResponse: Content {
     let devices: [UserDeviceId]
 }
 
-public struct SendMessage: Content {
-    let message: MultiRecipientSpokeMessage
+public struct SendMessage<Body: Codable>: Content {
+    let message: Body
     let messageId: String
 }
 
@@ -87,9 +87,10 @@ struct CreateReadReceiptRequest: Content {
     let messageSender: UserDeviceId
 }
 
-enum MessageType: String {
+enum MessageType: String, Codable {
     case message = "a"
-    case readReceipt = "b"
+    case multiRecipientMessage = "b"
+    case readReceipt = "c"
 }
 
 struct SendMessageRequest: Codable {
@@ -204,13 +205,61 @@ func registerRoutes(to routes: RoutesBuilder) {
 //        }
 //    }
     
+    protectedRoutes.post("users", ":userId", "devices", ":deviceId", "send-message") { req throws -> EventLoopFuture<Response> in
+        // TODO: Prevent receiving the same mesasgeID twice, so that a device can safely assume it being sent in the job queue
+        guard let currentUserDevice = req.device else {
+            throw Abort(.unauthorized)
+        }
+        
+        guard
+            let recipient = req.parameters.get("userId", as: Reference<User>.self),
+            let deviceId = req.parameters.get("deviceId")
+        else {
+            throw Abort(.notFound)
+        }
+        
+        let recipientDevice = UserDeviceId(user: recipient, device: deviceId)
+        let body = try req.content.decode(SendMessage<RatchetedSpokeMessage>.self)
+        let message = body.message
+        
+        let chatMessage = ChatMessage(
+            messageId: body.messageId,
+            message: message,
+            from: currentUserDevice,
+            to: recipientDevice
+        )
+        let encoded = try BSONEncoder().encode(chatMessage)
+        
+        return req.application.webSocketManager.websocket(forDevice: recipientDevice).flatMap { webSocket -> EventLoopFuture<Void> in
+            if let webSocket = webSocket {
+                let body: Document = [
+                    "type": MessageType.message.rawValue,
+                    "body": encoded
+                ]
+                
+                let promise = req.eventLoop.makePromise(of: Void.self)
+                webSocket.send(raw: body.makeData(), opcode: .binary, promise: promise)
+                return promise.futureResult
+                // TODO: Client ack
+            } else {
+                return recipient.exists(in: req.meow).flatMap { exists in
+                    if exists {
+                        return chatMessage.save(in: req.meow).transform(to: ())
+                    } else {
+                        return req.eventLoop.makeSucceededVoidFuture()
+                    }
+                }
+            }
+        }.transform(to: Response(status: .ok))
+    }
+    
     protectedRoutes.post("actions", "send-message") { req throws -> EventLoopFuture<Response> in
         // TODO: Prevent receiving the same mesasgeID twice, so that a device can safely assume it being sent in the job queue
         guard let currentUserDevice = req.device else {
             throw Abort(.unauthorized)
         }
         
-        let body = try req.content.decode(SendMessage.self)
+        let body = try req.content.decode(SendMessage<MultiRecipientSpokeMessage>.self)
         let message = body.message
         
         let saved = try message.keys.map { keypair -> EventLoopFuture<Void> in
@@ -242,7 +291,7 @@ func registerRoutes(to routes: RoutesBuilder) {
             return req.application.webSocketManager.websocket(forDevice: recpientDevice).flatMap { webSocket -> EventLoopFuture<Void> in
                 if let webSocket = webSocket {
                     let body: Document = [
-                        "type": MessageType.message.rawValue,
+                        "type": MessageType.multiRecipientMessage.rawValue,
                         "body": body
                     ]
                     
@@ -276,7 +325,28 @@ func registerRoutes(to routes: RoutesBuilder) {
         let emittingOldMessages = chatMessages
             .find(where: "recipient" == user.reference)
             .sequentialForEach { message in
-                let bson = try BSONEncoder().encode(message)
+                let type: MessageType
+                let body: Document
+                
+                do {
+                    if let message = message.message {
+                        type = .message
+                        body = try BSONEncoder().encode(message)
+                    } else if let message = message.multiRecipientMessage {
+                        type = .multiRecipientMessage
+                        body = try BSONEncoder().encode(message)
+                    } else {
+                        return req.eventLoop.makeSucceededVoidFuture()
+                    }
+                } catch {
+                    return req.eventLoop.makeSucceededVoidFuture()
+                }
+                
+                let bson: Document = [
+                    "type": type.rawValue,
+                    "body": body
+                ]
+                
                 let promise = req.eventLoop.makePromise(of: Void.self)
                 
                 guard message.recipient == device else {
@@ -295,51 +365,6 @@ func registerRoutes(to routes: RoutesBuilder) {
         emittingOldMessages.whenSuccess {
             req.application.webSocketManager.addSocket(websocket, forDevice: device)
         }
-        
-//        emittingOldMessages.flatMap {
-//            chatMessages.buildChangeStream {
-//                match("fullDocument.recipient" == user.reference)
-//            }
-//        }.map { changeStream in
-//            var changeStream = changeStream
-//            changeStream.setGetMoreInterval(to: .seconds(5))
-//            changeStream.forEach { notification in
-//                guard notification.operationType == .insert, let message = notification.fullDocument else {
-//                    return true
-//                }
-//
-//                guard message.recipient == device else {
-//                    // Skip this one, not intended for this device
-//                    return true
-//                }
-//
-//                do {
-//                    let promise = req.eventLoop.makePromise(of: Void.self)
-//                    let bson = try BSONEncoder().encode(message)
-//
-//                    websocket.send(raw: bson.makeData(), opcode: .binary, promise: promise)
-//
-//                    _ = message.save(in: req.meow).flatMap { _ in
-//                        promise.futureResult
-//                    }.flatMap {
-//                        // TODO: Multi-Device Support?
-//                        // TODO: What is a message never arrives at the client? Do we use acknowledgements (which become a receive-receipt)?
-//                        chatMessages.deleteOne(where: "_id" == message._id).transform(to: ())
-//                    }
-//
-//                    return true
-//                } catch {
-//                    _ = websocket.close(code: .unexpectedServerError)
-//                    return false
-//                }
-//            }
-//        }.whenFailure { error in
-//            _ = websocket.close(code: .unexpectedServerError)
-//        }
-        
-//        websocket.onBinary { websocket, buffer in
-//            let message = Document(buffer: buffer, isArray: false)
-//        }
     }
     
     // TODO: Create and manage group chat configs
