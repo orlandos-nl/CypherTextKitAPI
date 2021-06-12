@@ -228,7 +228,7 @@ func registerRoutes(to routes: RoutesBuilder) {
             from: currentUserDevice,
             to: recipientDevice
         )
-        let encoded = try BSONEncoder().encode(message)
+        let encoded = try BSONEncoder().encode(chatMessage)
         
         return req.application.webSocketManager.websocket(forDevice: recipientDevice).flatMap { webSocket -> EventLoopFuture<Void> in
             if let webSocket = webSocket {
