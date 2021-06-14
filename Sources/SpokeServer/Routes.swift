@@ -1,3 +1,4 @@
+import APNS
 import MongoKitten
 import JWT
 import BSON
@@ -76,8 +77,13 @@ struct UserKeysResponse: Content {
     let devices: [UserDeviceId]
 }
 
+public enum PushType: String, Codable {
+    case none, call, message, contactRequest = "contactrequest", cancelCall = "cancelcall"
+}
+
 public struct SendMessage<Body: Codable>: Content {
     let message: Body
+    let pushType: PushType?
     let messageId: String
 }
 
@@ -221,6 +227,7 @@ func registerRoutes(to routes: RoutesBuilder) {
         let recipientDevice = UserDeviceId(user: recipient, device: deviceId)
         let body = try req.content.decode(SendMessage<RatchetedSpokeMessage>.self)
         let message = body.message
+        let pushType = body.pushType ?? .none
         
         let chatMessage = ChatMessage(
             messageId: body.messageId,
@@ -261,6 +268,7 @@ func registerRoutes(to routes: RoutesBuilder) {
         
         let body = try req.content.decode(SendMessage<MultiRecipientSpokeMessage>.self)
         let message = body.message
+        let pushType = body.pushType ?? .none
         
         let saved = try message.keys.map { keypair -> EventLoopFuture<Void> in
             let message = MultiRecipientSpokeMessage(
@@ -300,13 +308,19 @@ func registerRoutes(to routes: RoutesBuilder) {
                     return promise.futureResult
                     // TODO: Client ack
                 } else {
-                    return recipient.exists(in: req.meow).flatMap { exists in
-                        if exists {
-                            return chatMessage.save(in: req.meow).transform(to: ())
-                        } else {
-                            return req.eventLoop.makeSucceededVoidFuture()
+                    return recipient.resolve(in: req.meow).flatMap { recipient in
+                        return chatMessage.save(in: req.meow).flatMap { _ -> EventLoopFuture<Void> in
+                            guard let token = recipient.deviceTokens[keypair.deviceId] else {
+                                return req.eventLoop.future()
+                            }
+                            
+                            return req.application.apns.send(
+                                rawBytes: body.makeByteBuffer(),
+                                pushType: .alert,
+                                to: token
+                            )
                         }
-                    }
+                    }.recover { _ in }
                 }
             }
         }

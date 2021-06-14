@@ -14,7 +14,8 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.0.0"),
         .package(url: "https://github.com/vapor/jwt.git", from: "4.0.0"),
-        .package(url: "https://github.com/OpenKitten/MongoKitten.git", .branch("master/6.0"))
+        .package(url: "https://github.com/OpenKitten/MongoKitten.git", .branch("master/6.0")),
+        .package(url: "https://github.com/vapor/apns.git", from: "2.0.0"),
     ],
     targets: [
         .target(
@@ -23,7 +24,8 @@ let package = Package(
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "JWT", package: "jwt"),
                 .product(name: "MongoKitten", package: "MongoKitten"),
-                .product(name: "Meow", package: "MongoKitten")
+                .product(name: "Meow", package: "MongoKitten"),
+                .product(name: "APNS", package: "apns"),
             ],
             swiftSettings: [
                 .unsafeFlags([

@@ -60,12 +60,18 @@ public struct User: Model {
     public var appleIdentifier: String?
     public var config: UserConfig
     public var blockedUsers: Set<Reference<User>>
+    private var tokens: [String: String]?
+    public var deviceTokens: [String: String] {
+        get { tokens ?? [:] }
+        set { tokens = newValue }
+    }
     
     init(username: String, appleIdentifier: String?, config: UserConfig) {
         self._id = username
         self.appleIdentifier = appleIdentifier
         self.config = config
         self.blockedUsers = []
+        self.tokens = [:]
     }
 }
 
