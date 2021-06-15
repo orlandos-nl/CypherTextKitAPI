@@ -364,7 +364,11 @@ func registerRoutes(to routes: RoutesBuilder) {
     }
     
     protectedRoutes.webSocket("websocket") { req, websocket in
-        guard let user = req.userId, let device = req.device else {
+        guard
+            let user = req.userId,
+            let device = req.device,
+            let deviceId = req.deviceId
+        else {
             _ = websocket.close(code: .unexpectedServerError)
             return
         }
@@ -372,7 +376,7 @@ func registerRoutes(to routes: RoutesBuilder) {
         let chatMessages = req.meow(ChatMessage.self)
         
         let emittingOldMessages = chatMessages
-            .find(where: "recipient" == user.reference)
+            .find(where: "recipient.user" == user.reference && "recipient.device" == deviceId)
             .sequentialForEach { message in
                 let type: MessageType
                 let body: Document
