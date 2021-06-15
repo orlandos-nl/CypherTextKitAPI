@@ -226,7 +226,7 @@ func registerRoutes(to routes: RoutesBuilder) {
 //        }
 //    }
     
-    protectedRoutes.post("users", ":userId", "devices", ":deviceId", "send-message") { req throws -> EventLoopFuture<Response> in
+    protectedRoutes.on(.POST, "users", ":userId", "devices", ":deviceId", "send-message", body: .collect(maxSize: 512_000)) { req throws -> EventLoopFuture<Response> in
         // TODO: Prevent receiving the same mesasgeID twice, so that a device can safely assume it being sent in the job queue
         guard let currentUserDevice = req.device else {
             throw Abort(.unauthorized)
@@ -288,7 +288,7 @@ func registerRoutes(to routes: RoutesBuilder) {
         }.transform(to: Response(status: .ok))
     }
     
-    protectedRoutes.post("actions", "send-message") { req throws -> EventLoopFuture<Response> in
+    protectedRoutes.on(.POST, "actions", "send-message", body: .collect(maxSize: 512_000)) { req throws -> EventLoopFuture<Response> in
         // TODO: Prevent receiving the same mesasgeID twice, so that a device can safely assume it being sent in the job queue
         guard let currentUserDevice = req.device else {
             throw Abort(.unauthorized)
