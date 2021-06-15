@@ -117,6 +117,10 @@ struct SignUpResponse: Content {
     let existingUser: String?
 }
 
+struct SetToken: Content {
+    let token: String
+}
+
 func registerRoutes(to routes: RoutesBuilder) {
     routes.post("auth", "apple", "sign-up") { req -> EventLoopFuture<SignUpResponse> in
         let body = try req.content.decode(SIWARequest.self)
@@ -159,6 +163,17 @@ func registerRoutes(to routes: RoutesBuilder) {
     
     // TODO: Use $set instead of `save`
     let protectedRoutes = routes.grouped(TokenAuthenticationMiddleware())
+    
+    protectedRoutes.post("current-device", "token") { req -> EventLoopFuture<Response> in
+        guard var user = req.user, let deviceId = req.deviceId else {
+            throw Abort(.notFound)
+        }
+        let body = try req.content.decode(SetToken.self)
+        
+        user.deviceTokens[deviceId] = body.token
+        
+        return user.save(in: req.meow).transform(to: Response(status: .ok))
+    }
     
     protectedRoutes.post("current-user", "config") { req -> EventLoopFuture<UserProfile> in
         let config = try req.content.decode(UserConfig.self)
