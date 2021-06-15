@@ -265,20 +265,22 @@ func registerRoutes(to routes: RoutesBuilder) {
                 // TODO: Client ack
             } else {
                 return recipient.resolve(in: req.meow).flatMap { recipient in
-                    return chatMessage.save(in: req.meow).flatMap { _ -> EventLoopFuture<Void> in
-                        if recipient.blockedUsers.contains(currentUserDevice.user) {
-                            return req.eventLoop.future()
-                        }
-                        
-                        guard let token = recipient.deviceTokens[recipientDevice.device] else {
-                            return req.eventLoop.future()
-                        }
-                        
-                        return req.apns.send(
-                            rawBytes: encoded.makeByteBuffer(),
-                            pushType: .alert,
-                            to: token
-                        )
+                    if recipient.blockedUsers.contains(currentUserDevice.user) {
+                        req.logger.info("User is blocked")
+                        return req.eventLoop.future()
+                    }
+                    
+                    guard let token = recipient.deviceTokens[recipientDevice.device] else {
+                        req.logger.info("Recipient device has no registered token")
+                        return chatMessage.save(in: req.meow).transform(to: ())
+                    }
+                    
+                    return req.apns.send(
+                        rawBytes: encoded.makeByteBuffer(),
+                        pushType: .alert,
+                        to: token
+                    ).flatMap {
+                        chatMessage.save(in: req.meow).transform(to: ())
                     }
                 }.recover { _ in }
             }
@@ -334,22 +336,23 @@ func registerRoutes(to routes: RoutesBuilder) {
                     // TODO: Client ack
                 } else {
                     return recipient.resolve(in: req.meow).flatMap { recipient in
-                        return chatMessage.save(in: req.meow).flatMap { _ -> EventLoopFuture<Void> in
-                            if recipient.blockedUsers.contains(currentUserDevice.user) {
-                                return req.eventLoop.future()
-                            }
-                            
-                            guard let token = recipient.deviceTokens[keypair.deviceId] else {
-                                return req.eventLoop.future()
-                            }
-                            
-                            return req.apns.send(
-                                rawBytes: body.makeByteBuffer(),
-                                pushType: .alert,
-                                to: token
-                            )
+                        if recipient.blockedUsers.contains(currentUserDevice.user) {
+                            req.logger.info("User is blocked")
+                            return req.eventLoop.future()
                         }
-                    }.recover { _ in }
+                        
+                        guard let token = recipient.deviceTokens[recipientDevice.device] else {
+                            req.logger.info("Recipient device has no registered token")
+                            return chatMessage.save(in: req.meow).transform(to: ())
+                        }
+                        
+                        return req.apns.send(
+                            rawBytes: encoded.makeByteBuffer(),
+                            pushType: .alert,
+                            to: token
+                        ).flatMap {
+                            chatMessage.save(in: req.meow).transform(to: ())
+                        }
                 }
             }
         }
