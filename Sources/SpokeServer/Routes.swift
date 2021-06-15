@@ -341,18 +341,19 @@ func registerRoutes(to routes: RoutesBuilder) {
                             return req.eventLoop.future()
                         }
                         
-                        guard let token = recipient.deviceTokens[recipientDevice.device] else {
+                        guard let token = recipient.deviceTokens[keypair.deviceId] else {
                             req.logger.info("Recipient device has no registered token")
                             return chatMessage.save(in: req.meow).transform(to: ())
                         }
                         
                         return req.apns.send(
-                            rawBytes: encoded.makeByteBuffer(),
+                            rawBytes: body.makeByteBuffer(),
                             pushType: .alert,
                             to: token
                         ).flatMap {
                             chatMessage.save(in: req.meow).transform(to: ())
                         }
+                    }
                 }
             }
         }
