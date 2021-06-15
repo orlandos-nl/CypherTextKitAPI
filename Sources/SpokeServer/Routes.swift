@@ -242,7 +242,7 @@ func registerRoutes(to routes: RoutesBuilder) {
         let recipientDevice = UserDeviceId(user: recipient, device: deviceId)
         let body = try req.content.decode(SendMessage<RatchetedSpokeMessage>.self)
         let message = body.message
-        let pushType = body.pushType ?? .none
+//        let pushType = body.pushType ?? .none
         
         let chatMessage = ChatMessage(
             messageId: body.messageId,
@@ -264,13 +264,23 @@ func registerRoutes(to routes: RoutesBuilder) {
                 return promise.futureResult
                 // TODO: Client ack
             } else {
-                return recipient.exists(in: req.meow).flatMap { exists in
-                    if exists {
-                        return chatMessage.save(in: req.meow).transform(to: ())
-                    } else {
-                        return req.eventLoop.makeSucceededVoidFuture()
+                return recipient.resolve(in: req.meow).flatMap { recipient in
+                    return chatMessage.save(in: req.meow).flatMap { _ -> EventLoopFuture<Void> in
+                        if recipient.blockedUsers.contains(currentUserDevice.user) {
+                            return req.eventLoop.future()
+                        }
+                        
+                        guard let token = recipient.deviceTokens[recipientDevice.device] else {
+                            return req.eventLoop.future()
+                        }
+                        
+                        return req.apns.send(
+                            rawBytes: encoded.makeByteBuffer(),
+                            pushType: .alert,
+                            to: token
+                        )
                     }
-                }
+                }.recover { _ in }
             }
         }.transform(to: Response(status: .ok))
     }
@@ -283,7 +293,7 @@ func registerRoutes(to routes: RoutesBuilder) {
         
         let body = try req.content.decode(SendMessage<MultiRecipientSpokeMessage>.self)
         let message = body.message
-        let pushType = body.pushType ?? .none
+//        let pushType = body.pushType ?? .none
         
         let saved = try message.keys.map { keypair -> EventLoopFuture<Void> in
             let message = MultiRecipientSpokeMessage(
@@ -325,11 +335,15 @@ func registerRoutes(to routes: RoutesBuilder) {
                 } else {
                     return recipient.resolve(in: req.meow).flatMap { recipient in
                         return chatMessage.save(in: req.meow).flatMap { _ -> EventLoopFuture<Void> in
+                            if recipient.blockedUsers.contains(currentUserDevice.user) {
+                                return req.eventLoop.future()
+                            }
+                            
                             guard let token = recipient.deviceTokens[keypair.deviceId] else {
                                 return req.eventLoop.future()
                             }
                             
-                            return req.application.apns.send(
+                            return req.apns.send(
                                 rawBytes: body.makeByteBuffer(),
                                 pushType: .alert,
                                 to: token
