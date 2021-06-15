@@ -275,6 +275,7 @@ func registerRoutes(to routes: RoutesBuilder) {
                         return chatMessage.save(in: req.meow).transform(to: ())
                     }
                     
+                    req.logger.info("Sending push to \(recipient._id)")
                     return req.apns.send(
                         rawBytes: encoded.makeByteBuffer(),
                         pushType: .alert,
@@ -346,6 +347,7 @@ func registerRoutes(to routes: RoutesBuilder) {
                             return chatMessage.save(in: req.meow).transform(to: ())
                         }
                         
+                        req.logger.info("Sending push to \(recipient._id)")
                         return req.apns.send(
                             rawBytes: body.makeByteBuffer(),
                             pushType: .alert,
