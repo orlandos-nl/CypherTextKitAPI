@@ -382,15 +382,8 @@ func registerRoutes(to routes: RoutesBuilder) {
                 let body: Document
                 
                 do {
-                    if let message = message.message {
-                        type = .message
-                        body = try BSONEncoder().encode(message)
-                    } else if let message = message.multiRecipientMessage {
-                        type = .multiRecipientMessage
-                        body = try BSONEncoder().encode(message)
-                    } else {
-                        return req.eventLoop.makeSucceededVoidFuture()
-                    }
+                    type = message.multiRecipientMessage != nil ? .multiRecipientMessage : .message
+                    body = try BSONEncoder().encode(message)
                 } catch {
                     return req.eventLoop.makeSucceededVoidFuture()
                 }
