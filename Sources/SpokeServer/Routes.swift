@@ -79,6 +79,31 @@ struct UserKeysResponse: Content {
 
 public enum PushType: String, Codable {
     case none, call, message, contactRequest = "contactrequest", cancelCall = "cancelcall"
+    
+    func sendNotification(for request: Request, to token: String) -> EventLoopFuture<Void> {
+        switch self {
+        case .none:
+            return request.eventLoop.future()
+        case .call, .cancelCall:
+            return request.eventLoop.future()
+        case .message:
+            return request.apns.send(
+                APNSwiftAlert(
+                    title: "New Message",
+                    body: "<Encrypted>"
+                ),
+                to: token
+            )
+        case .contactRequest:
+            return request.apns.send(
+                APNSwiftAlert(
+                    title: "New Contact Request",
+                    body: "<Encrypted>"
+                ),
+                to: token
+            )
+        }
+    }
 }
 
 public struct SendMessage<Body: Codable>: Content {
@@ -243,8 +268,8 @@ func registerRoutes(to routes: RoutesBuilder) {
         let recipientDevice = UserDeviceId(user: recipient, device: deviceId)
         let body = try req.content.decode(SendMessage<RatchetedSpokeMessage>.self)
         let message = body.message
-//        let pushType = body.pushType ?? .none
-        
+        let pushType = body.pushType ?? .none
+
         let chatMessage = ChatMessage(
             messageId: body.messageId,
             message: message,
@@ -266,11 +291,7 @@ func registerRoutes(to routes: RoutesBuilder) {
                 }
                 
                 req.logger.info("Sending push to \(recipient._id)")
-                return req.apns.send(
-                    rawBytes: encoded.makeByteBuffer(),
-                    pushType: .alert,
-                    to: token
-                ).flatMap {
+                return pushType.sendNotification(for: req, to: token).flatMap {
                     chatMessage.save(in: req.meow).transform(to: ())
                 }
             }.recover { _ in }
@@ -306,6 +327,7 @@ func registerRoutes(to routes: RoutesBuilder) {
         
         let body = try req.content.decode(SendMessage<MultiRecipientSpokeMessage>.self)
         let message = body.message
+        let pushType = body.pushType ?? .none
         
         let saved = try message.keys.map { keypair -> EventLoopFuture<Void> in
             let message = MultiRecipientSpokeMessage(
@@ -346,11 +368,7 @@ func registerRoutes(to routes: RoutesBuilder) {
                     }
                     
                     req.logger.info("Sending push to \(recipient._id)")
-                    return req.apns.send(
-                        rawBytes: body.makeByteBuffer(),
-                        pushType: .alert,
-                        to: token
-                    ).flatMap {
+                    return pushType.sendNotification(for: req, to: token).flatMap {
                         chatMessage.save(in: req.meow).transform(to: ())
                     }
                 }
