@@ -320,7 +320,7 @@ func registerRoutes(to routes: RoutesBuilder) {
                 throw Abort(.badRequest)
             }
             
-            let recpientDevice = UserDeviceId(
+            let recipientDevice = UserDeviceId(
                 user: recipient,
                 device: keypair.deviceId
             )
@@ -329,7 +329,7 @@ func registerRoutes(to routes: RoutesBuilder) {
                 messageId: body.messageId,
                 message: message,
                 from: currentUserDevice,
-                to: recpientDevice
+                to: recipientDevice
             )
             let body = try BSONEncoder().encode(chatMessage)
             
@@ -356,7 +356,7 @@ func registerRoutes(to routes: RoutesBuilder) {
                 }
             }
             
-            return req.application.webSocketManager.websocket(forDevice: recpientDevice).flatMap { webSocket -> EventLoopFuture<Void> in
+            return req.application.webSocketManager.websocket(forDevice: recipientDevice).flatMap { webSocket -> EventLoopFuture<Void> in
                 if let webSocket = webSocket {
                     let id = ObjectId()
                     let body: Document = [
