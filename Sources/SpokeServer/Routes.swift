@@ -83,14 +83,17 @@ public enum PushType: String, Codable {
     func sendNotification(for request: Request, to token: String) -> EventLoopFuture<Void> {
         switch self {
         case .none:
+            request.logger.info("No notification")
             return request.eventLoop.future()
         case .call, .cancelCall:
+            request.logger.info("(Cancel) Call notifications not supported yet")
             return request.eventLoop.future()
         case .message:
             return request.apns.send(
                 APNSwiftAlert(
                     title: "New Message",
-                    body: "<Encrypted>"
+                    subtitle: "<Encrypted>",
+                    body: "Open App to View"
                 ),
                 to: token
             )
