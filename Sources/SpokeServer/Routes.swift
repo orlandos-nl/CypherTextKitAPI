@@ -97,6 +97,7 @@ enum MessageType: String, Codable {
     case message = "a"
     case multiRecipientMessage = "b"
     case readReceipt = "c"
+    case ack = "d"
 }
 
 struct SendMessageRequest: Codable {
@@ -252,38 +253,47 @@ func registerRoutes(to routes: RoutesBuilder) {
         )
         let encoded = try BSONEncoder().encode(chatMessage)
         
+        func onWebSocketFailure() -> EventLoopFuture<Void> {
+            return recipient.resolve(in: req.meow).flatMap { recipient in
+                if recipient.blockedUsers.contains(currentUserDevice.user) {
+                    req.logger.info("User is blocked")
+                    return req.eventLoop.future()
+                }
+                
+                guard let token = recipient.deviceTokens[recipientDevice.device] else {
+                    req.logger.info("Recipient device has no registered token")
+                    return chatMessage.save(in: req.meow).transform(to: ())
+                }
+                
+                req.logger.info("Sending push to \(recipient._id)")
+                return req.apns.send(
+                    rawBytes: encoded.makeByteBuffer(),
+                    pushType: .alert,
+                    to: token
+                ).flatMap {
+                    chatMessage.save(in: req.meow).transform(to: ())
+                }
+            }.recover { _ in }
+        }
+        
         return req.application.webSocketManager.websocket(forDevice: recipientDevice).flatMap { webSocket -> EventLoopFuture<Void> in
             if let webSocket = webSocket {
+                let id = ObjectId()
                 let body: Document = [
+                    "id": id,
                     "type": MessageType.message.rawValue,
                     "body": encoded
                 ]
                 
                 let promise = req.eventLoop.makePromise(of: Void.self)
                 webSocket.send(raw: body.makeData(), opcode: .binary, promise: promise)
-                return promise.futureResult
-                // TODO: Client ack
+                return promise.futureResult.flatMap {
+                    req.expectWebSocketAck(forId: id, forDevice: currentUserDevice)
+                }.flatMapError { _ in
+                    onWebSocketFailure()
+                }
             } else {
-                return recipient.resolve(in: req.meow).flatMap { recipient in
-                    if recipient.blockedUsers.contains(currentUserDevice.user) {
-                        req.logger.info("User is blocked")
-                        return req.eventLoop.future()
-                    }
-                    
-                    guard let token = recipient.deviceTokens[recipientDevice.device] else {
-                        req.logger.info("Recipient device has no registered token")
-                        return chatMessage.save(in: req.meow).transform(to: ())
-                    }
-                    
-                    req.logger.info("Sending push to \(recipient._id)")
-                    return req.apns.send(
-                        rawBytes: encoded.makeByteBuffer(),
-                        pushType: .alert,
-                        to: token
-                    ).flatMap {
-                        chatMessage.save(in: req.meow).transform(to: ())
-                    }
-                }.recover { _ in }
+                return onWebSocketFailure()
             }
         }.transform(to: Response(status: .ok))
     }
@@ -296,7 +306,6 @@ func registerRoutes(to routes: RoutesBuilder) {
         
         let body = try req.content.decode(SendMessage<MultiRecipientSpokeMessage>.self)
         let message = body.message
-//        let pushType = body.pushType ?? .none
         
         let saved = try message.keys.map { keypair -> EventLoopFuture<Void> in
             let message = MultiRecipientSpokeMessage(
@@ -324,38 +333,47 @@ func registerRoutes(to routes: RoutesBuilder) {
             )
             let body = try BSONEncoder().encode(chatMessage)
             
+            func onWebSocketFailure() -> EventLoopFuture<Void> {
+                return recipient.resolve(in: req.meow).flatMap { recipient in
+                    if recipient.blockedUsers.contains(currentUserDevice.user) {
+                        req.logger.info("User is blocked")
+                        return req.eventLoop.future()
+                    }
+                    
+                    guard let token = recipient.deviceTokens[keypair.deviceId] else {
+                        req.logger.info("Recipient device has no registered token")
+                        return chatMessage.save(in: req.meow).transform(to: ())
+                    }
+                    
+                    req.logger.info("Sending push to \(recipient._id)")
+                    return req.apns.send(
+                        rawBytes: body.makeByteBuffer(),
+                        pushType: .alert,
+                        to: token
+                    ).flatMap {
+                        chatMessage.save(in: req.meow).transform(to: ())
+                    }
+                }
+            }
+            
             return req.application.webSocketManager.websocket(forDevice: recpientDevice).flatMap { webSocket -> EventLoopFuture<Void> in
                 if let webSocket = webSocket {
+                    let id = ObjectId()
                     let body: Document = [
+                        "id": id,
                         "type": MessageType.multiRecipientMessage.rawValue,
                         "body": body
                     ]
                     
                     let promise = req.eventLoop.makePromise(of: Void.self)
                     webSocket.send(raw: body.makeData(), opcode: .binary, promise: promise)
-                    return promise.futureResult
-                    // TODO: Client ack
-                } else {
-                    return recipient.resolve(in: req.meow).flatMap { recipient in
-                        if recipient.blockedUsers.contains(currentUserDevice.user) {
-                            req.logger.info("User is blocked")
-                            return req.eventLoop.future()
-                        }
-                        
-                        guard let token = recipient.deviceTokens[keypair.deviceId] else {
-                            req.logger.info("Recipient device has no registered token")
-                            return chatMessage.save(in: req.meow).transform(to: ())
-                        }
-                        
-                        req.logger.info("Sending push to \(recipient._id)")
-                        return req.apns.send(
-                            rawBytes: body.makeByteBuffer(),
-                            pushType: .alert,
-                            to: token
-                        ).flatMap {
-                            chatMessage.save(in: req.meow).transform(to: ())
-                        }
+                    return promise.futureResult.flatMap {
+                        req.expectWebSocketAck(forId: id, forDevice: currentUserDevice)
+                    }.flatMapError { _ in
+                        onWebSocketFailure()
                     }
+                } else {
+                    return onWebSocketFailure()
                 }
             }
         }
@@ -374,6 +392,21 @@ func registerRoutes(to routes: RoutesBuilder) {
         }
         
         let chatMessages = req.meow(ChatMessage.self)
+        let manager = req.application.webSocketManager
+        
+        websocket.onBinary { websocket, buffer in
+            let document = Document(buffer: buffer)
+            
+            guard
+                document["type"] as? String == MessageType.ack.rawValue,
+                let ackId = document["id"] as? ObjectId
+            else {
+                // Ignore
+                return
+            }
+            
+            manager.acknowledge(id: ackId, forDevice: device)
+        }
         
         let emittingOldMessages = chatMessages
             .find(where: "recipient.user" == user.reference && "recipient.device" == deviceId)
@@ -388,7 +421,9 @@ func registerRoutes(to routes: RoutesBuilder) {
                     return req.eventLoop.makeSucceededVoidFuture()
                 }
                 
+                let id = ObjectId()
                 let bson: Document = [
+                    "id": id,
                     "type": type.rawValue,
                     "body": body
                 ]
@@ -403,9 +438,9 @@ func registerRoutes(to routes: RoutesBuilder) {
                 
                 websocket.send(raw: bson.makeData(), opcode: .binary, promise: promise)
                 
-                    // TODO: Multi-Device Support?
-                    // TODO: What is a message never arrives at the client? Do we use acknowledgements (which become a receive-receipt)?
-                return chatMessages.deleteOne(where: "_id" == message._id).transform(to: ())
+                return req.expectWebSocketAck(forId: id, forDevice: device).flatMap {
+                    chatMessages.deleteOne(where: "_id" == message._id).transform(to: ())
+                }
             }
         
         emittingOldMessages.whenSuccess {
