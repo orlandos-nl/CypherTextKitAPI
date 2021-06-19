@@ -288,7 +288,7 @@ func registerRoutes(to routes: RoutesBuilder) {
                 let promise = req.eventLoop.makePromise(of: Void.self)
                 webSocket.send(raw: body.makeData(), opcode: .binary, promise: promise)
                 return promise.futureResult.flatMap {
-                    req.expectWebSocketAck(forId: id, forDevice: currentUserDevice)
+                    req.expectWebSocketAck(forId: id, forDevice: recipientDevice)
                 }.flatMapError { _ in
                     onWebSocketFailure()
                 }
@@ -368,7 +368,7 @@ func registerRoutes(to routes: RoutesBuilder) {
                     let promise = req.eventLoop.makePromise(of: Void.self)
                     webSocket.send(raw: body.makeData(), opcode: .binary, promise: promise)
                     return promise.futureResult.flatMap {
-                        req.expectWebSocketAck(forId: id, forDevice: currentUserDevice)
+                        req.expectWebSocketAck(forId: id, forDevice: recipientDevice)
                     }.flatMapError { _ in
                         onWebSocketFailure()
                     }
