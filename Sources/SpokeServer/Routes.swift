@@ -190,6 +190,14 @@ func registerRoutes(to routes: RoutesBuilder) {
         return user.save(in: req.meow).transform(to: SignUpResponse(existingUser: nil))
     }
     
+    routes.get("users", ":userId") { req -> EventLoopFuture<UserProfile> in
+        guard let user = req.parameters.get("userId", as: Reference<UserProfile>.self) else {
+            throw Abort(.notFound)
+        }
+        
+        return user.resolve(in: req.meow)
+    }
+    
     // TODO: Use $set instead of `save`
     let protectedRoutes = routes.grouped(TokenAuthenticationMiddleware())
     
@@ -215,14 +223,6 @@ func registerRoutes(to routes: RoutesBuilder) {
         
         return user.save(in: req.meow)
             .transform(to: UserProfile(representing: user))
-    }
-    
-    protectedRoutes.get("users", ":userId") { req -> EventLoopFuture<UserProfile> in
-        guard let user = req.parameters.get("userId", as: Reference<UserProfile>.self) else {
-            throw Abort(.notFound)
-        }
-        
-        return user.resolve(in: req.meow)
     }
     
     // TODO: Use update op with $push
