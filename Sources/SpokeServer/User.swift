@@ -81,6 +81,7 @@ public struct UserProfile: ReadableModel, Content {
     
     public let _id: String
     public let config: UserConfig
+    public let blockedUsers: Set<Reference<User>>
     
     public func encode(to encoder: Encoder) throws {
         enum EncodingKeys: String, CodingKey {
