@@ -96,7 +96,7 @@ public enum PushType: String, Codable {
                     body: "Open App to View"
                 ),
                 to: token
-            )
+            ).recover { _ in }
         case .contactRequest:
             return request.apns.send(
                 APNSwiftAlert(
@@ -104,7 +104,7 @@ public enum PushType: String, Codable {
                     body: "<Encrypted>"
                 ),
                 to: token
-            )
+            ).recover { _ in }
         }
     }
 }
