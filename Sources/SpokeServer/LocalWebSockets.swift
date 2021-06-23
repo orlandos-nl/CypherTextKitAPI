@@ -1,3 +1,4 @@
+import Meow
 import BSON
 import Vapor
 
@@ -60,6 +61,12 @@ final class WebSocketManager {
     public func acknowledge(id: ObjectId, forDevice device: UserDeviceId) {
         if let ack = acks[id], ack.0 == device {
             ack.1.succeed(())
+        }
+    }
+    
+    public func hasWebsocket(forUser user: Reference<User>) -> EventLoopFuture<Bool> {
+        eventLoop.submit {
+            self.webSockets.contains { $0.device.user == user }
         }
     }
     

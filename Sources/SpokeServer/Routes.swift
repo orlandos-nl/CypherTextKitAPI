@@ -262,6 +262,7 @@ func registerRoutes(to routes: RoutesBuilder) {
         }
         
         guard
+            let sender = req.user,
             let recipient = req.parameters.get("userId", as: Reference<User>.self),
             let deviceId = req.parameters.get("deviceId")
         else {
@@ -282,13 +283,20 @@ func registerRoutes(to routes: RoutesBuilder) {
         let encoded = try BSONEncoder().encode(chatMessage)
         
         func onWebSocketFailure() -> EventLoopFuture<Void> {
-            return recipient.resolve(in: req.meow).flatMap { recipient in
+            let isRecipientConnected = req.application.webSocketManager.hasWebsocket(forUser: recipient)
+            let recipient = recipient.resolve(in: req.meow)
+            
+            return recipient.and(isRecipientConnected).flatMap { (recipient, isRecipientConnected) in
                 if recipient.blockedUsers.contains(currentUserDevice.user) {
                     req.logger.info("User is blocked")
                     return req.eventLoop.future()
                 }
                 
-                guard let token = recipient.deviceTokens[recipientDevice.device] else {
+                guard
+                    !isRecipientConnected,
+                    recipient* != sender*,
+                    let token = recipient.deviceTokens[recipientDevice.device]
+                else {
                     req.logger.info("Recipient device has no registered token")
                     return chatMessage.save(in: req.meow).transform(to: ())
                 }
@@ -359,13 +367,20 @@ func registerRoutes(to routes: RoutesBuilder) {
             let body = try BSONEncoder().encode(chatMessage)
             
             func onWebSocketFailure() -> EventLoopFuture<Void> {
-                return recipient.resolve(in: req.meow).flatMap { recipient in
+                let isRecipientConnected = req.application.webSocketManager.hasWebsocket(forUser: recipient)
+                let recipient = recipient.resolve(in: req.meow)
+                
+                return recipient.and(isRecipientConnected).flatMap { (recipient, isRecipientConnected) in
                     if recipient.blockedUsers.contains(currentUserDevice.user) {
                         req.logger.info("User is blocked")
                         return req.eventLoop.future()
                     }
                     
-                    guard let token = recipient.deviceTokens[keypair.deviceId] else {
+                    guard
+                        !isRecipientConnected,
+                        recipient* != currentUserDevice.user,
+                        let token = recipient.deviceTokens[keypair.deviceId]
+                    else {
                         req.logger.info("Recipient device has no registered token")
                         return chatMessage.save(in: req.meow).transform(to: ())
                     }
