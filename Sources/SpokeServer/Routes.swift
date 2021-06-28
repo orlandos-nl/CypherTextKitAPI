@@ -226,34 +226,34 @@ func registerRoutes(to routes: RoutesBuilder) {
     }
     
     // TODO: Use update op with $push
-//    protectedRoutes.post("users", ":userId", "block") { req -> EventLoopFuture<UserProfile> in
-//        guard let currentUser = req.userId, let otherUser = req.parameters.get("userId", as: Reference<User>.self) else {
-//            throw Abort(.unauthorized)
-//        }
-//
-//        return currentUser.resolve(in: req.meow).flatMap { currentUser in
-//            var currentUser = currentUser
-//            currentUser.blockedUsers.insert(otherUser)
-//
-//            return currentUser.save(in: req.meow)
-//                .transform(to: UserProfile(representing: currentUser))
-//        }
-//    }
-//
-//    // TODO: Use update op with $pull
-//    protectedRoutes.post("users", ":userId", "unblock") { req -> EventLoopFuture<UserProfile> in
-//        guard let currentUser = req.userId, let otherUser = req.parameters.get("userId", as: Reference<User>.self) else {
-//            throw Abort(.unauthorized)
-//        }
-//
-//        return currentUser.resolve(in: req.meow).flatMap { currentUser in
-//            var currentUser = currentUser
-//            currentUser.blockedUsers.remove(otherUser)
-//
-//            return currentUser.save(in: req.meow)
-//                .transform(to: UserProfile(representing: currentUser))
-//        }
-//    }
+    //    protectedRoutes.post("users", ":userId", "block") { req -> EventLoopFuture<UserProfile> in
+    //        guard let currentUser = req.userId, let otherUser = req.parameters.get("userId", as: Reference<User>.self) else {
+    //            throw Abort(.unauthorized)
+    //        }
+    //
+    //        return currentUser.resolve(in: req.meow).flatMap { currentUser in
+    //            var currentUser = currentUser
+    //            currentUser.blockedUsers.insert(otherUser)
+    //
+    //            return currentUser.save(in: req.meow)
+    //                .transform(to: UserProfile(representing: currentUser))
+    //        }
+    //    }
+    //
+    //    // TODO: Use update op with $pull
+    //    protectedRoutes.post("users", ":userId", "unblock") { req -> EventLoopFuture<UserProfile> in
+    //        guard let currentUser = req.userId, let otherUser = req.parameters.get("userId", as: Reference<User>.self) else {
+    //            throw Abort(.unauthorized)
+    //        }
+    //
+    //        return currentUser.resolve(in: req.meow).flatMap { currentUser in
+    //            var currentUser = currentUser
+    //            currentUser.blockedUsers.remove(otherUser)
+    //
+    //            return currentUser.save(in: req.meow)
+    //                .transform(to: UserProfile(representing: currentUser))
+    //        }
+    //    }
     
     protectedRoutes.on(.POST, "users", ":userId", "devices", ":deviceId", "send-message", body: .collect(maxSize: 512_000)) { req throws -> EventLoopFuture<Response> in
         // TODO: Prevent receiving the same mesasgeID twice, so that a device can safely assume it being sent in the job queue
@@ -273,7 +273,7 @@ func registerRoutes(to routes: RoutesBuilder) {
         let body = try req.content.decode(SendMessage<RatchetedSpokeMessage>.self)
         let message = body.message
         let pushType = body.pushType ?? .none
-
+        
         let chatMessage = ChatMessage(
             messageId: body.messageId,
             message: message,
@@ -446,7 +446,13 @@ func registerRoutes(to routes: RoutesBuilder) {
         
         let emittingOldMessages = chatMessages
             .find(where: "recipient.user" == user.reference && "recipient.device" == deviceId)
-            .sequentialForEach { message in
+            .forEach { message in
+                guard message.recipient == device else {
+                    // Skip this one, not intended for this device
+                    req.logger.error("Invalid message for recipient")
+                    return
+                }
+                
                 let type: MessageType
                 let body: Document
                 
@@ -454,7 +460,8 @@ func registerRoutes(to routes: RoutesBuilder) {
                     type = message.multiRecipientMessage != nil ? .multiRecipientMessage : .message
                     body = try BSONEncoder().encode(message)
                 } catch {
-                    return req.eventLoop.makeSucceededVoidFuture()
+                    req.logger.report(error: error)
+                    return
                 }
                 
                 let id = ObjectId()
@@ -464,18 +471,12 @@ func registerRoutes(to routes: RoutesBuilder) {
                     "body": body
                 ]
                 
-                let promise = req.eventLoop.makePromise(of: Void.self)
+                websocket.send(raw: bson.makeData(), opcode: .binary)
                 
-                guard message.recipient == device else {
-                    // Skip this one, not intended for this device
-                    promise.succeed(())
-                    return promise.futureResult
-                }
-                
-                websocket.send(raw: bson.makeData(), opcode: .binary, promise: promise)
-                
-                return req.expectWebSocketAck(forId: id, forDevice: device).flatMap {
-                    chatMessages.deleteOne(where: "_id" == message._id).transform(to: ())
+                req.expectWebSocketAck(forId: id, forDevice: device).flatMap {
+                    chatMessages.deleteOne(where: "_id" == message._id)
+                }.whenFailure { error in
+                    req.logger.report(error: error)
                 }
             }
         
