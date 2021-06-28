@@ -405,8 +405,9 @@ func registerRoutes(to routes: RoutesBuilder) {
                     webSocket.send(raw: body.makeData(), opcode: .binary, promise: promise)
                     return promise.futureResult.flatMap {
                         req.expectWebSocketAck(forId: id, forDevice: recipientDevice)
-                    }.flatMapError { _ in
-                        onWebSocketFailure()
+                    }.flatMapError { error in
+                        req.logger.report(error: error)
+                        return onWebSocketFailure()
                     }
                 } else {
                     return onWebSocketFailure()
@@ -442,6 +443,10 @@ func registerRoutes(to routes: RoutesBuilder) {
             }
             
             manager.acknowledge(id: ackId, forDevice: device)
+        }
+        
+        websocket.onClose.whenComplete { _ in
+            req.logger.info("WebSocket Client disconnected")
         }
         
         let emittingOldMessages = chatMessages
