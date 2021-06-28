@@ -8,7 +8,7 @@ extension Application {
             return manager
         }
         
-        let manager = WebSocketManager(eventLoop: eventLoopGroup.next())
+        let manager = WebSocketManager(app: app)
         storage.set(WebSocketManagerKey.self, to: manager)
         return manager
     }
@@ -36,9 +36,11 @@ extension Request {
 }
 
 final class WebSocketManager {
+    let app: Application
     let eventLoop: EventLoop
-    init(eventLoop: EventLoop) {
-        self.eventLoop = eventLoop
+    init(app: Application) {
+        self.app = app
+        self.eventLoop = app.eventLoopGroup.next()
     }
     private var webSockets = [WebSocketClient]()
     fileprivate var acks = [ObjectId: (UserDeviceId, EventLoopPromise<Void>)]()
@@ -47,6 +49,7 @@ final class WebSocketManager {
         eventLoop.execute {
             if let index = self.webSockets.firstIndex(where: { $0.device == device }) {
                 let client = self.webSockets.remove(at: index)
+                self.app.logger.info("Killing existing socket for replacement")
                 _ = client.socket.close()
             }
             
@@ -59,8 +62,10 @@ final class WebSocketManager {
     }
     
     public func acknowledge(id: ObjectId, forDevice device: UserDeviceId) {
-        if let ack = acks[id], ack.0 == device {
-            ack.1.succeed(())
+        eventLoop.execute {
+            if let ack = self.acks[id], ack.0 == device {
+                ack.1.succeed(())
+            }
         }
     }
     
