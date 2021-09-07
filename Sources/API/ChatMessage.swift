@@ -13,12 +13,12 @@ struct ChatMessage: Model, Content {
     let createdAt: Date
     let sender: UserDeviceId
     let recipient: UserDeviceId
-    let multiRecipientMessage: MultiRecipientSpokeMessage?
-    let message: RatchetedSpokeMessage?
+    let multiRecipientMessage: MultiRecipientMessage?
+    let message: RatchetedMessage?
     
     init(
         messageId: String,
-        message: MultiRecipientSpokeMessage,
+        message: MultiRecipientMessage,
         from sender: UserDeviceId,
         to recipient: UserDeviceId
     ) {
@@ -33,7 +33,7 @@ struct ChatMessage: Model, Content {
     
     init(
         messageId: String,
-        message: RatchetedSpokeMessage,
+        message: RatchetedMessage,
         from sender: UserDeviceId,
         to recipient: UserDeviceId
     ) {

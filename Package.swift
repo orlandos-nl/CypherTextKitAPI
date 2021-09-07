@@ -4,28 +4,30 @@
 import PackageDescription
 
 let package = Package(
-    name: "SpokeServer",
+    name: "API",
     platforms: [
         .macOS(.v11)
     ],
     products: [
-        .executable(name: "SpokeServer", targets: ["SpokeServer"])
+        .executable(name: "API", targets: ["API"])
     ],
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.0.0"),
         .package(url: "https://github.com/vapor/jwt.git", from: "4.0.0"),
+        .package(url: "https://github.com/joannis/IkigaJSON.git", from: "2.0.0"),
         .package(url: "https://github.com/OpenKitten/MongoKitten.git", .branch("master/6.0")),
         .package(url: "https://github.com/vapor/apns.git", from: "2.0.0"),
     ],
     targets: [
         .target(
-            name: "SpokeServer",
+            name: "API",
             dependencies: [
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "JWT", package: "jwt"),
                 .product(name: "MongoKitten", package: "MongoKitten"),
                 .product(name: "Meow", package: "MongoKitten"),
                 .product(name: "APNS", package: "apns"),
+                .product(name: "IkigaJSON", package: "IkigaJSON"),
             ],
             swiftSettings: [
                 .unsafeFlags([
@@ -34,7 +36,7 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "SpokeServerTests",
-            dependencies: ["SpokeServer"]),
+            name: "APITests",
+            dependencies: ["API"]),
     ]
 )

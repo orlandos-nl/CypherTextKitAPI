@@ -1,7 +1,7 @@
 import XCTest
 import class Foundation.Bundle
 
-final class SpokeServerTests: XCTestCase {
+final class CypherTextKitServerTests: XCTestCase {
     func testExample() throws {
         // This is an example of a functional test case.
         // Use XCTAssert and related functions to verify your tests produce the correct
@@ -12,7 +12,7 @@ final class SpokeServerTests: XCTestCase {
             return
         }
 
-        let fooBinary = productsDirectory.appendingPathComponent("SpokeServer")
+        let fooBinary = productsDirectory.appendingPathComponent("CypherTextKitServer")
 
         let process = Process()
         process.executableURL = fooBinary

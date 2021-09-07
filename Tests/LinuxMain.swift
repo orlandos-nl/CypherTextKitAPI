@@ -1,7 +1,7 @@
 import XCTest
 
-import SpokeServerTests
+import CypherTextKitServerTests
 
 var tests = [XCTestCaseEntry]()
-tests += SpokeServerTests.allTests()
+tests += CypherTextKitServerTests.allTests()
 XCTMain(tests)

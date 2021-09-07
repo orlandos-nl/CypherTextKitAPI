@@ -10,7 +10,7 @@ public struct MultiRecipientContainer: Codable {
     let signature: Data
 }
 
-public struct MultiRecipientSpokeMessage: Codable {
+public struct MultiRecipientMessage: Codable {
     public struct ContainerKey: Codable {
         private enum CodingKeys: String, CodingKey {
             case user = "a"
@@ -20,7 +20,7 @@ public struct MultiRecipientSpokeMessage: Codable {
         
         public let user: String
         public let deviceId: String
-        public let message: RatchetedSpokeMessage
+        public let message: RatchetedMessage
     }
     
     private enum CodingKeys: String, CodingKey {
@@ -29,17 +29,17 @@ public struct MultiRecipientSpokeMessage: Codable {
         case keys = "b"
     }
     
-    private(set) var tag: SpokeMesageTag?
+    private(set) var tag: CypherTextKitMesageTag?
     public let container: MultiRecipientContainer
     public let keys: [ContainerKey]
 }
 
-enum SpokeMesageTag: String, Codable {
+enum CypherTextKitMesageTag: String, Codable {
     case privateMessage = "a"
     case multiRecipientMessage = "b"
 }
 
-public struct RatchetedSpokeMessage: Codable {
+public struct RatchetedMessage: Codable {
     private enum CodingKeys: String, CodingKey {
         case tag = "_"
         case message = "a"
@@ -47,7 +47,7 @@ public struct RatchetedSpokeMessage: Codable {
         case rekey = "c"
     }
     
-    private(set) var tag: SpokeMesageTag?
+    private(set) var tag: CypherTextKitMesageTag?
     private let message: Data
     private let signature: Data
     

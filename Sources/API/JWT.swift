@@ -19,7 +19,7 @@ struct TokenAuthenticationMiddleware: Middleware {
             let deviceId = request.headers["X-Api-Device"].first,
             let token = request.headers["X-Api-Token"].first
         else {
-            return request.eventLoop.makeFailedFuture(SpokeServerError.badLogin)
+            return request.eventLoop.makeFailedFuture(CypherTextKitServerError.badLogin)
         }
         
         let user = Reference<User>(unsafeTo: username)
@@ -41,7 +41,7 @@ struct TokenAuthenticationMiddleware: Middleware {
                         }
                     } else {
                         // Device is not a known device, user is not signed in
-                        throw SpokeServerError.badLogin
+                        throw CypherTextKitServerError.badLogin
                     }
                 }
                 

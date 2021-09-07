@@ -270,7 +270,7 @@ func registerRoutes(to routes: RoutesBuilder) {
         }
         
         let recipientDevice = UserDeviceId(user: recipient, device: deviceId)
-        let body = try req.content.decode(SendMessage<RatchetedSpokeMessage>.self)
+        let body = try req.content.decode(SendMessage<RatchetedMessage>.self)
         let message = body.message
         let pushType = body.pushType ?? .none
         
@@ -336,12 +336,12 @@ func registerRoutes(to routes: RoutesBuilder) {
             throw Abort(.unauthorized)
         }
         
-        let body = try req.content.decode(SendMessage<MultiRecipientSpokeMessage>.self)
+        let body = try req.content.decode(SendMessage<MultiRecipientMessage>.self)
         let message = body.message
         let pushType = body.pushType ?? .none
         
         let saved = try message.keys.map { keypair -> EventLoopFuture<Void> in
-            let message = MultiRecipientSpokeMessage(
+            let message = MultiRecipientMessage(
                 tag: .multiRecipientMessage,
                 container: message.container,
                 keys: [keypair]
