@@ -331,7 +331,7 @@ func registerRoutes(to routes: RoutesBuilder) {
     }
     
     protectedRoutes.on(.POST, "actions", "send-message", body: .collect(maxSize: 512_000)) { req throws -> EventLoopFuture<Response> in
-        // TODO: Prevent receiving the same mesasgeID twice, so that a device can safely assume it being sent in the job queue
+        // TODO: Prevent receiving the same messageID twice, so that a device can safely assume it being sent in the job queue
         guard let currentUserDevice = req.device else {
             throw Abort(.unauthorized)
         }
@@ -451,11 +451,11 @@ func registerRoutes(to routes: RoutesBuilder) {
         
         let emittingOldMessages = chatMessages
             .find(where: "recipient.user" == user.reference && "recipient.device" == deviceId)
-            .forEach { message in
+            .sequentialForEach { message -> EventLoopFuture<Void> in
                 guard message.recipient == device else {
                     // Skip this one, not intended for this device
                     req.logger.error("Invalid message for recipient")
-                    return
+                    return req.eventLoop.future()
                 }
                 
                 let type: MessageType
@@ -466,7 +466,7 @@ func registerRoutes(to routes: RoutesBuilder) {
                     body = try BSONEncoder().encode(message)
                 } catch {
                     req.logger.report(error: error)
-                    return
+                    return req.eventLoop.future(error: error)
                 }
                 
                 let id = ObjectId()
@@ -478,14 +478,13 @@ func registerRoutes(to routes: RoutesBuilder) {
                 
                 websocket.send(raw: bson.makeData(), opcode: .binary)
                 
-                req.expectWebSocketAck(forId: id, forDevice: device).flatMap {
+                return req.expectWebSocketAck(forId: id, forDevice: device).flatMap {
                     chatMessages.deleteOne(where: "_id" == message._id)
-                }.whenFailure { error in
-                    req.logger.report(error: error)
-                }
+                }.transform(to: ())
             }
         
         emittingOldMessages.whenSuccess {
+            // TODO: Horizontal scaling with change streams
             req.application.webSocketManager.addSocket(websocket, forDevice: device)
         }
     }
