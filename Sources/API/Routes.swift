@@ -181,13 +181,21 @@ func registerRoutes(to routes: RoutesBuilder) {
     routes.post("auth", "plain", "sign-up") { req -> EventLoopFuture<SignUpResponse> in
         let body = try req.content.decode(PlainSignUpRequest.self)
         
-        let user = User(
-            username: body.username,
-            appleIdentifier: nil,
-            config: body.config
-        )
+        let reference = Reference<User>(unsafeTo: body.username)
         
-        return user.save(in: req.meow).transform(to: SignUpResponse(existingUser: nil))
+        return reference.exists(in: req.meow).flatMap { exists in
+            if exists {
+                return req.eventLoop.future(error: Abort(.badRequest))
+            }
+            
+            let user = User(
+                username: body.username,
+                appleIdentifier: nil,
+                config: body.config
+            )
+            
+            return user.save(in: req.meow).transform(to: SignUpResponse(existingUser: nil))
+        }
     }
     
     routes.get("users", ":userId") { req -> EventLoopFuture<UserProfile> in
