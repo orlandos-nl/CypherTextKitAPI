@@ -459,6 +459,7 @@ func registerRoutes(to routes: RoutesBuilder) {
         
         let emittingOldMessages = chatMessages
             .find(where: "recipient.user" == user.reference && "recipient.device" == deviceId)
+            .sort(["createdAt": .ascending])
             .sequentialForEach { message -> EventLoopFuture<Void> in
                 guard message.recipient == device else {
                     // Skip this one, not intended for this device
