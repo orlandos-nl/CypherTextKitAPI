@@ -263,7 +263,7 @@ func registerRoutes(to routes: RoutesBuilder) {
     //        }
     //    }
     
-    protectedRoutes.on(.POST, "users", ":userId", "devices", ":deviceId", "send-message", body: .collect(maxSize: 4_000_000)) { req throws -> EventLoopFuture<Response> in
+    protectedRoutes.on(.POST, "users", ":userId", "devices", ":deviceId", "send-message", body: .collect(maxSize: 4_500_000)) { req throws -> EventLoopFuture<Response> in
         // TODO: Prevent receiving the same mesasgeID twice, so that a device can safely assume it being sent in the job queue
         guard let currentUserDevice = req.device else {
             throw Abort(.unauthorized)
@@ -338,7 +338,7 @@ func registerRoutes(to routes: RoutesBuilder) {
         }.transform(to: Response(status: .ok))
     }
     
-    protectedRoutes.on(.POST, "actions", "send-message", body: .collect(maxSize: 4_000_000)) { req throws -> EventLoopFuture<Response> in
+    protectedRoutes.on(.POST, "actions", "send-message", body: .collect(maxSize: 4_500_000)) { req throws -> EventLoopFuture<Response> in
         // TODO: Prevent receiving the same messageID twice, so that a device can safely assume it being sent in the job queue
         guard let currentUserDevice = req.device else {
             throw Abort(.unauthorized)
