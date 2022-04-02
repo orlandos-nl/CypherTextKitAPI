@@ -23,5 +23,4 @@ ContentConfiguration.global.use(encoder: BSONEncoder(), for: .bson)
 ContentConfiguration.global.use(decoder: BSONDecoder(), for: .bson)
 registerRoutes(to: app)
 
-app.http.server.configuration.address = .hostname("0.0.0.0", port: 8080)
 try app.run()
