@@ -270,7 +270,7 @@ func registerRoutes(to routes: RoutesBuilder) {
     //        }
     //    }
     
-    protectedRoutes.post("blobs", ":blobId") { req -> Blob in
+    protectedRoutes.post("blobs") { req -> Blob in
         guard let user = req.user else {
             throw Abort(.internalServerError)
         }
