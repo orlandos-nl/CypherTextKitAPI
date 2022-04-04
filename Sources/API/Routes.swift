@@ -77,13 +77,20 @@ struct UserKeysResponse: Content {
     let devices: [UserDeviceId]
 }
 
+extension Document: AsyncResponseEncodable {
+    public func encodeResponse(for request: Request) async throws -> Response {
+        Response(status: .ok, headers: [
+            "Content-Type": "application/bson"
+        ], body: .init(buffer: makeByteBuffer()))
+    }
+}
+
 public enum PushType: String, Codable {
     case none, call, message, contactRequest = "contactrequest", cancelCall = "cancelcall"
     
     func sendNotification(for request: Request, to token: String) -> EventLoopFuture<Void> {
         switch self {
         case .none:
-            request.logger.info("No notification")
             return request.eventLoop.future()
         case .call, .cancelCall:
             request.logger.info("(Cancel) Call notifications not supported yet")
@@ -262,6 +269,36 @@ func registerRoutes(to routes: RoutesBuilder) {
     //                .transform(to: UserProfile(representing: currentUser))
     //        }
     //    }
+    
+    protectedRoutes.post("blobs", ":blobId") { req -> Blob in
+        guard let user = req.user else {
+            throw Abort(.internalServerError)
+        }
+        
+        guard let buffer = try await req.body.collect().get() else {
+            throw Abort(.badRequest)
+        }
+        
+        let document = Document(buffer: buffer)
+        
+        guard document.validate().isValid else {
+            throw Abort(.badRequest)
+        }
+        
+        let blob = Blob(creator: user*, document: document)
+        _ = try await blob.create(in: req.meow).get()
+        return blob
+    }
+    
+    protectedRoutes.get("blobs", ":blobId") { req -> Blob in
+        let id = try req.parameters.require("blobId")
+        
+        guard let blob = try await req.meow[Blob.self].findOne(where: "_id" == id).get() else {
+            throw Abort(.notFound)
+        }
+        
+        return blob
+    }
     
     protectedRoutes.post("users", ":userId", "devices", ":deviceId", "send-message") { req throws -> EventLoopFuture<Response> in
         // TODO: Prevent receiving the same mesasgeID twice, so that a device can safely assume it being sent in the job queue
