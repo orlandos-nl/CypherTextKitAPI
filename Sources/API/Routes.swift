@@ -77,11 +77,13 @@ struct UserKeysResponse: Content {
     let devices: [UserDeviceId]
 }
 
-extension Document: AsyncResponseEncodable {
-    public func encodeResponse(for request: Request) async throws -> Response {
-        Response(status: .ok, headers: [
+extension Document: ResponseEncodable {
+    public func encodeResponse(for request: Request) -> EventLoopFuture<Response> {
+        let response = Response(status: .ok, headers: [
             "Content-Type": "application/bson"
         ], body: .init(buffer: makeByteBuffer()))
+        
+        return request.eventLoop.makeSucceededFuture(response)
     }
 }
 
