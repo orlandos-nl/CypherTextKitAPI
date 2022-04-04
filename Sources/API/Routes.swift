@@ -270,34 +270,29 @@ func registerRoutes(to routes: RoutesBuilder) {
     //        }
     //    }
     
-    protectedRoutes.post("blobs") { req -> Blob in
+    protectedRoutes.post("blobs") { req -> EventLoopFuture<Blob> in
         guard let user = req.user else {
             throw Abort(.internalServerError)
         }
         
-        guard let buffer = try await req.body.collect().get() else {
-            throw Abort(.badRequest)
+        return req.body.collect().unwrap(or: Abort(.badRequest)).flatMapThrowing { buffer -> Document in
+            let document = Document(buffer: buffer)
+            
+            guard document.validate().isValid else {
+                throw Abort(.badRequest)
+            }
+            
+            return document
+        }.flatMap { document in
+            let blob = Blob(creator: user*, document: document)
+            return blob.create(in: req.meow).transform(to: blob)
         }
-        
-        let document = Document(buffer: buffer)
-        
-        guard document.validate().isValid else {
-            throw Abort(.badRequest)
-        }
-        
-        let blob = Blob(creator: user*, document: document)
-        _ = try await blob.create(in: req.meow).get()
-        return blob
     }
     
-    protectedRoutes.get("blobs", ":blobId") { req -> Blob in
+    protectedRoutes.get("blobs", ":blobId") { req -> EventLoopFuture<Blob> in
         let id = try req.parameters.require("blobId")
         
-        guard let blob = try await req.meow[Blob.self].findOne(where: "_id" == id).get() else {
-            throw Abort(.notFound)
-        }
-        
-        return blob
+        return req.meow[Blob.self].findOne(where: "_id" == id).unwrap(or: Abort(.notFound))
     }
     
     protectedRoutes.post("users", ":userId", "devices", ":deviceId", "send-message") { req throws -> EventLoopFuture<Response> in
