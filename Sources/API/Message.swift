@@ -40,6 +40,13 @@ enum CypherTextKitMesageTag: String, Codable {
 }
 
 public struct RatchetedMessage: Codable {
+    internal init(tag: CypherTextKitMesageTag? = nil, message: Data, signature: Data, rekey: Bool) {
+        self.tag = tag
+        self.message = message
+        self.signature = signature
+        self.rekey = rekey
+    }
+    
     private enum CodingKeys: String, CodingKey {
         case tag = "_"
         case message = "a"

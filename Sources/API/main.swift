@@ -1,6 +1,7 @@
 import Vapor
 import Meow
 import Metrics
+import APNS
 
 let env = try Environment.detect()
 let app = Application(env)

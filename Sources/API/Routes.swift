@@ -110,9 +110,18 @@ public enum PushType: String, Codable {
                 
                 if payload.count > 768 {
                     return request.apns.send(
-                        APNSwiftAlert(
-                            title: "New Message",
-                            body: "Open the app to view"
+                        APNSwiftPayload(
+                            alert: APNSwiftAlert(
+                                title: "New Message",
+                                body: "Open the app to view"
+                            ),
+                            badge: 1,
+                            sound: .normal("default"),
+                            hasContentAvailable: false,
+                            hasMutableContent: true,
+                            threadID: message.sender.user.reference,
+                            targetContentId: message.sender.user.reference,
+                            interruptionLevel: "active"
                         ),
                         to: token
                     ).recover { error in
@@ -121,10 +130,19 @@ public enum PushType: String, Codable {
                 }
                 
                 return request.apns.send(
-                    APNSwiftAlert(
-                        title: "New Message",
-                        subtitle: payload.base64EncodedString(),
-                        body: "Open the app to view"
+                    APNSwiftPayload(
+                        alert: APNSwiftAlert(
+                            title: "New Message",
+                            subtitle: payload.base64EncodedString(),
+                            body: "Open the app to view"
+                        ),
+                        badge: 1,
+                        sound: .normal("default"),
+                        hasContentAvailable: false,
+                        hasMutableContent: true,
+                        threadID: message.sender.user.reference,
+                        targetContentId: message.sender.user.reference,
+                        interruptionLevel: "active"
                     ),
                     to: token
                 ).recover { error in
@@ -136,9 +154,18 @@ public enum PushType: String, Codable {
             }
         case .contactRequest:
             return request.apns.send(
-                APNSwiftAlert(
-                    title: "New Contact Request",
-                    body: "Open the app to view"
+                APNSwiftPayload(
+                    alert: APNSwiftAlert(
+                        title: "Contact Request",
+                        body: "Open the app to view"
+                    ),
+                    badge: 1,
+                    sound: .normal("default"),
+                    hasContentAvailable: false,
+                    hasMutableContent: true,
+                    threadID: message.sender.user.reference,
+                    targetContentId: message.sender.user.reference,
+                    interruptionLevel: "active"
                 ),
                 to: token
             ).recover { error in
@@ -568,6 +595,5 @@ func registerRoutes(to routes: RoutesBuilder) {
         }
     }
     
-    // TODO: Create and manage group chat configs
     // TODO: Read receipts and acknowledge receiving a message on the client (receive receipt), so the server can remove it and the other user also gets a heads up
 }
