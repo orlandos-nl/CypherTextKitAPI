@@ -108,7 +108,8 @@ public enum PushType: String, Codable {
                 
                 let payload = try BSONEncoder().encode(notification).makeData()
                 
-                if payload.count > 768 {
+                if payload.count > 1_500 {
+                    request.logger.info("Message size \(payload.coun)")
                     return request.apns.send(
                         APNSwiftPayload(
                             alert: APNSwiftAlert(
