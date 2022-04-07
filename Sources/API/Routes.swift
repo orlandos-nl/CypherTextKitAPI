@@ -99,8 +99,22 @@ public enum PushType: String, Codable {
             return request.eventLoop.future()
         case .message:
             do {
+                let payload = try BSONEncoder().encode(message).makeByteBuffer()
+                
+                if payload.readableBytes > 4096 {
+                    return request.apns.send(
+                        APNSwiftAlert(
+                            title: "New Message",
+                            body: "Open the app to view"
+                        ),
+                        to: token
+                    ).recover { error in
+                        request.logger.report(error: error)
+                    }
+                }
+                
                 return request.apns.send(
-                    rawBytes: try BSONEncoder().encode(message).makeByteBuffer(),
+                    rawBytes: payload,
                     pushType: .alert,
                     to: token
                 ).recover { error in
@@ -114,7 +128,7 @@ public enum PushType: String, Codable {
             return request.apns.send(
                 APNSwiftAlert(
                     title: "New Contact Request",
-                    body: "<Encrypted>"
+                    body: "Open the app to view"
                 ),
                 to: token
             ).recover { error in
