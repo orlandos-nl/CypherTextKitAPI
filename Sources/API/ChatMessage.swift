@@ -7,6 +7,20 @@ enum ReceivedNotificationState: Int, Codable {
     case receiveEmitted = 2
 }
 
+struct ChatNotification: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case username = "u"
+        case deviceId = "d"
+        case multiRecipientMessage = "M"
+        case message = "m"
+    }
+    
+    let username: String
+    let deviceId: String
+    let multiRecipientMessage: MultiRecipientMessage?
+    let message: RatchetedMessage?
+}
+
 struct ChatMessage: Model, Content {
     let _id: ObjectId
     let messageId: String

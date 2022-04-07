@@ -99,9 +99,16 @@ public enum PushType: String, Codable {
             return request.eventLoop.future()
         case .message:
             do {
-                let payload = try BSONEncoder().encode(message).makeByteBuffer()
+                let notification = ChatNotification(
+                    username: message.sender.user.reference,
+                    deviceId: message.sender.device,
+                    multiRecipientMessage: message.multiRecipientMessage,
+                    message: message.message
+                )
                 
-                if payload.readableBytes > 4096 {
+                let payload = try BSONEncoder().encode(notification).makeData()
+                
+                if payload.count > 768 {
                     return request.apns.send(
                         APNSwiftAlert(
                             title: "New Message",
@@ -114,8 +121,11 @@ public enum PushType: String, Codable {
                 }
                 
                 return request.apns.send(
-                    rawBytes: payload,
-                    pushType: .alert,
+                    APNSwiftAlert(
+                        title: "New Message",
+                        subtitle: payload.base64EncodedString(),
+                        body: "Open the app to view"
+                    ),
                     to: token
                 ).recover { error in
                     request.logger.report(error: error)
