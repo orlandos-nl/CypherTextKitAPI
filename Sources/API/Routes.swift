@@ -90,7 +90,7 @@ extension Document: ResponseEncodable {
 public enum PushType: String, Codable {
     case none, call, message, contactRequest = "contactrequest", cancelCall = "cancelcall"
     
-    func sendNotification(for request: Request, to token: String) -> EventLoopFuture<Void> {
+    func sendNotification(_ message: ChatMessage, for request: Request, to token: String) -> EventLoopFuture<Void> {
         switch self {
         case .none:
             return request.eventLoop.future()
@@ -98,14 +98,18 @@ public enum PushType: String, Codable {
             request.logger.info("(Cancel) Call notifications not supported yet")
             return request.eventLoop.future()
         case .message:
-            return request.apns.send(
-                APNSwiftAlert(
-                    title: "New Message",
-                    subtitle: "<Encrypted>",
-                    body: "Open App to View"
-                ),
-                to: token
-            ).recover { _ in }
+            do {
+                return request.apns.send(
+                    rawBytes: try BSONEncoder().encode(message).makeByteBuffer(),
+                    pushType: .alert,
+                    to: token
+                ).recover { error in
+                    request.logger.report(error: error)
+                }
+            } catch {
+                request.logger.report(error: error)
+                return request.eventLoop.future()
+            }
         case .contactRequest:
             return request.apns.send(
                 APNSwiftAlert(
@@ -113,7 +117,9 @@ public enum PushType: String, Codable {
                     body: "<Encrypted>"
                 ),
                 to: token
-            ).recover { _ in }
+            ).recover { error in
+                request.logger.report(error: error)
+            }
         }
     }
 }
@@ -236,6 +242,12 @@ func registerRoutes(to routes: RoutesBuilder) {
             throw Abort(.badRequest)
         }
         
+        let devices = try config.readAndValidateDevices()
+        if devices.count > 3 {
+            // Disallowed
+            throw Abort(.badRequest)
+        }
+        
         user.config = config
         
         return user.save(in: req.meow)
@@ -344,7 +356,7 @@ func registerRoutes(to routes: RoutesBuilder) {
                 }
                 
                 req.logger.info("Sending push to \(recipient._id)")
-                return pushType.sendNotification(for: req, to: token).flatMap {
+                return pushType.sendNotification(chatMessage, for: req, to: token).flatMap {
                     chatMessage.save(in: req.meow).transform(to: ())
                 }
             }.recover { _ in }
@@ -428,7 +440,7 @@ func registerRoutes(to routes: RoutesBuilder) {
                     }
                     
                     req.logger.info("Sending push to \(recipient._id)")
-                    return pushType.sendNotification(for: req, to: token).flatMap {
+                    return pushType.sendNotification(chatMessage, for: req, to: token).flatMap {
                         chatMessage.save(in: req.meow).transform(to: ())
                     }
                 }
