@@ -17,7 +17,7 @@ app.apns.configuration = try .init(
         teamIdentifier: "6U5LP2533T"
     ),
     topic: "nl.orlandos.Workspaces",
-    environment: .production
+    environment: .sandbox
 )
 
 ContentConfiguration.global.use(encoder: BSONEncoder(), for: .bson)

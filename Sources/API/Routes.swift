@@ -356,7 +356,7 @@ func registerRoutes(to routes: RoutesBuilder) {
     }
     
     protectedRoutes.get("blobs", ":blobId") { req -> EventLoopFuture<Blob> in
-        let id = try req.parameters.require("blobId")
+        let id = try req.parameters.require("blobId").uppercased()
         
         return req.meow[Blob.self].findOne(where: "_id" == id).unwrap(or: Abort(.notFound))
     }

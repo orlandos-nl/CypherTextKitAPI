@@ -10,7 +10,7 @@ public struct Blob: Model, Content {
     public var document: Document
     
     init(creator: Reference<User>, document: Document) {
-        self._id = UUID().uuidString
+        self._id = UUID().uuidString.uppercased()
         self.creator = creator
         self.document = document
     }
