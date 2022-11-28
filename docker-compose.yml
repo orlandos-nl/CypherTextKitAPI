@@ -1,0 +1,18 @@
+version: "3"
+services:
+  orlandos-workspaces-development:
+    image: traefik/whoami
+    labels:
+      - traefik.http.routers.orlandos-workspaces-development.rule=Host(`development.workspaces.orlandos-nl.cust.cloud.orlandos.nl`)
+      - traefik.http.routers.orlandos-workspaces-development.tls=true
+      - traefik.http.routers.orlandos-workspaces-development.tls.certresolver=lets-encrypt
+      - traefik.port=8080
+    networks:
+      - traefik_web
+      - internal
+
+networks:
+  traefik_web:
+    external: true
+  internal:
+    external: false

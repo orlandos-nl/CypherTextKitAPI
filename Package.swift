@@ -19,7 +19,7 @@ let package = Package(
         .package(url: "https://github.com/vapor/apns.git", from: "2.0.0"),
     ],
     targets: [
-        .target(
+        .executableTarget(
             name: "API",
             dependencies: [
                 .product(name: "Vapor", package: "vapor"),
