@@ -226,7 +226,7 @@ func registerRoutes(to routes: RoutesBuilder) {
         
         return req.jwt.apple.verify(
             body.appleToken,
-            applicationIdentifier: "nl.orlandos.Workspaces"
+            applicationIdentifier: Environment.get("APP_BUNDLE_ID") ?? "nl.orlandos.Workspaces"
         ).flatMap { appleIdentityToken in
             req.meow(User.self).findOne(
                 where: "appleIdentifier" == appleIdentityToken.subject.value
