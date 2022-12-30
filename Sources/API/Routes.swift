@@ -88,7 +88,7 @@ extension Document: ResponseEncodable {
 }
 
 public enum PushType: String, Codable {
-    case none, call, message, contactRequest = "contactrequest", cancelCall = "cancelcall"
+    case none, call, message, contactRequest = "contact-request", cancelCall = "cancelcall"
     
     func sendNotification(_ message: ChatMessage, for request: Request, to token: String) -> EventLoopFuture<Void> {
         switch self {
